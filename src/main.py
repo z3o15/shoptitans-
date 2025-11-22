@@ -93,7 +93,7 @@ class EquipmentMatcher:
             print("\n未找到匹配的装备")
         
         # 生成综合匹配报告
-        self._generate_comprehensive_report(crop_folder, base_img_path, all_match_details, matched_items, current_threshold)
+        # self._generate_comprehensive_report(crop_folder, base_img_path, all_match_details, matched_items, current_threshold)
         
         return matched_items
     
@@ -120,7 +120,7 @@ class EquipmentMatcher:
 ## 基本信息
 - **基准装备**: {os.path.basename(base_img_path)}
 - **匹配阈值**: {threshold}%
-- **使用算法**: {algorithm_info.get('algorithm_name', '未知算法')}
+- **使用算法**: {self.recognizer.get_algorithm_info().get('algorithm_name', '未知算法')}
 - **处理时间**: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
 - **总装备数**: {len(all_match_details)}
 - **匹配装备数**: {len(matched_items)}
@@ -220,7 +220,7 @@ class EquipmentMatcher:
             report_content += f"""
 ---
 *报告生成时间: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}*
-*算法: {algorithm_name}*
+*算法: {self.recognizer.get_algorithm_info().get('algorithm_name', '未知算法')}*
 """
             
             # 写入报告文件

@@ -244,6 +244,12 @@ def step2_cut_screenshots():
     
     # 执行切割
     from src.screenshot_cutter import ScreenshotCutter
+    from src.config_manager import get_config_manager
+    
+    # 获取配置管理器和切割参数
+    config_manager = get_config_manager()
+    cutting_params = config_manager.get_cutting_params()
+    print(f"使用切割参数: {cutting_params}")
     
     try:
         total_cropped = 0
@@ -256,20 +262,8 @@ def step2_cut_screenshots():
             output_folder = os.path.join(output_dir, time_folder)
             os.makedirs(output_folder, exist_ok=True)
             
-            # 使用用户指定的切割参数
-            # 左侧间隔：10 像素，顶部间隔：275 像素
-            # 单装备尺寸：210 × 160 像素（宽×高）
-            # 装备横向间隔：15 像素，装备纵向间隔：20 像素
-            # 排列规则：2 行 × 5 列（共分割 10 个装备）
-            params = {
-                'grid': (5, 2),  # 5列2行
-                'item_width': 210,
-                'item_height': 160,
-                'margin_left': 10,
-                'margin_top': 275,
-                'h_spacing': 15,
-                'v_spacing': 20
-            }
+            # 使用从配置文件读取的切割参数
+            params = cutting_params
             
             # 询问用户是否只保存圆形区域
             print("\n请选择保存方式:")
@@ -662,16 +656,9 @@ def generate_annotated_screenshots():
         
         print(f"\n✅ 找到 {len(matched_items)} 个匹配项")
         
-        # 切割参数（与step2_cut_screenshots中的参数保持一致）
-        cutting_params = {
-            'grid': (5, 2),  # 5列2行
-            'item_width': 210,
-            'item_height': 160,
-            'margin_left': 10,
-            'margin_top': 275,
-            'h_spacing': 15,
-            'v_spacing': 20
-        }
+        # 从配置文件获取切割参数（与step2_cut_screenshots中的参数保持一致）
+        cutting_params = config_manager.get_cutting_params()
+        print(f"使用切割参数: {cutting_params}")
         
         # 为每个截图生成注释
         annotated_images = []

@@ -1,1077 +1,3 @@
-# 游戏装备图像识别系统
-
-[![Python Version](https://img.shields.io/badge/python-3.8+-blue.svg)](https://python.org)
-[![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
-[![OpenCV](https://img.shields.io/badge/opencv-4.8.0+-red.svg)](https://opencv.org)
-
-一个基于图像识别技术的游戏装备自动识别系统，采用双重算法架构，支持传统dHash算法和高级模板匹配算法，能够从游戏截图中自动识别出与基准装备图相匹配的装备。
-
-## 🚀 快速开始
-
-### 环境要求
-
-- Python 3.8 或更高版本
-- pip 包管理器
-
-### 安装步骤
-
-1. **克隆项目**
-   ```bash
-   git clone <repository-url>
-   cd "shoptitans 图片分隔和匹配"
-   ```
-
-2. **安装依赖**
-   ```bash
-   pip install -r requirements.txt
-   ```
-
-3. **准备数据**
-   - 将基准装备图放入 `images/base_equipment/` 目录
-   - 将游戏截图放入 `images/game_screenshots/` 目录
-
-4. **运行程序**
-   ```bash
-   # 使用启动脚本（推荐）
-   python run_recognition_start.py
-   
-   # 或使用交互式启动脚本
-   python start.py
-   
-   # 或直接运行主程序
-   python src/main.py
-   ```
-
-## 📁 项目结构
-
-```
-shoptitans 图片分隔和匹配/
-├── README.md                           # 项目说明（外层仅保留此文档）
-├── config.json                         # 系统配置文件
-├── requirements.txt                    # 依赖包列表
-├── run_recognition_start.py            # 启动脚本（推荐使用）
-├── start.py                            # 交互式启动脚本
-├── src/                               # 源代码目录
-│   ├── __init__.py                     # 模块初始化
-│   ├── config_manager.py               # 配置管理模块
-│   ├── equipment_recognizer.py         # 装备识别核心类（包含增强版识别器）
-│   ├── main.py                         # 主程序入口
-│   ├── screenshot_cutter.py            # 图像切割工具
-│   ├── advanced_matcher_standalone.py   # 高级装备识别器独立实现
-│   ├── feature_matcher.py              # 特征匹配器
-│   └── standalone_modules_README.md    # 独立模块说明文档
-├── images/                             # 图像资源目录
-│   ├── base_equipment/                 # 基准装备图目录
-│   ├── game_screenshots/               # 游戏截图目录
-│   └── cropped_equipment/              # 切割后装备目录（按时间戳组织）
-├── tests/                              # 测试文件目录
-│   ├── __init__.py                     # 测试模块初始化
-│   ├── test_unified.py                 # 统一测试程序（推荐）
-│   ├── test_system.py                 # 系统基础测试
-│   ├── test_image_annotator.py        # 图像注释测试
-│   ├── examples/                       # 示例代码
-│   │   ├── basic_usage.py              # 基础使用示例
-│   │   ├── advanced_usage.py           # 高级使用示例
-│   │   └── enhanced_recognizer_usage.py # 增强版识别器示例
-│   ├── run_mvp_test.py                # MVP测试运行脚本
-│   ├── install_dependencies.py         # 依赖安装脚本
-│   ├── config.json                    # 测试配置文件
-│   └── CHANGELOG.md                   # 测试更新日志
-├── recognition_logs/                   # 日志目录
-└── docs/                              # 文档目录
-    ├── PROJECT.md                      # 详细项目文档
-    ├── USAGE.md                        # 使用说明
-    ├── TECHNICAL_SPECIFICATION.md      # 技术规格文档
-    ├── MVP_USAGE.md                    # MVP使用指南
-    ├── CHANGELOG.md                    # 更新日志
-    ├── ANNOTATION_USAGE.md             # 图像注释功能指南
-    ├── INTEGRATION_TEST_REPORT.md      # 集成测试报告
-    ├── CLEANUP_REPORT.md               # 清理报告
-    └── [其他文档文件]                   # 其他相关文档
-```
-
-## 🖼️ 图片裁剪数据详解
-
-### 裁剪功能概述
-项目提供了强大的游戏截图裁剪功能，能够从游戏界面中精确提取装备图标。裁剪后的装备图像会自动按时间戳组织，避免文件覆盖，并支持圆形标记功能。
-
-### 裁剪流程详解
-
-#### 1. 固定坐标裁剪
-适用于装备位置固定的游戏界面，如背包、仓库等网格布局：
-
-```python
-from src.screenshot_cutter import ScreenshotCutter
-## 🧠 图片匹配高级算法详解
-
-### 算法架构概述
-项目实现了三种不同的图像匹配算法，每种算法都有其特定的优势和适用场景：
-
-1. **特征匹配算法**（默认）- 最准确，基于关键点匹配
-2. **高级彩色模板匹配算法** - 高精度，保留颜色信息
-3. **传统dHash算法** - 最快速度，适合大批量处理
-
-### 特征匹配算法详解
-
-#### 算法原理
-特征匹配算法通过提取图像的关键点和描述符，然后比较两组特征之间的相似性来判断图像是否匹配。
-
-#### 支持的特征类型
-- **SIFT** (Scale-Invariant Feature Transform): 尺度不变特征变换，对旋转、缩放、亮度变化具有不变性
-- **ORB** (Oriented FAST and Rotated BRIEF): 快速特征提取器，结合了FAST关键点检测器和BRIEF描述符
-- **AKAZE** (Accelerated-KAZE): 非线性尺度空间的快速特征检测器
-
-#### 算法流程
-1. **特征提取**: 使用选定的特征检测器提取关键点和描述符
-2. **特征匹配**: 使用k近邻匹配算法比较两组特征描述符
-3. **比例测试**: 应用Lowe's比例测试筛选好的匹配
-4. **几何验证**: 使用单应性矩阵验证匹配的几何一致性
-5. **置信度计算**: 基于匹配数量、比例和几何一致性计算最终置信度
-
-#### 关键参数
-```python
-from src.feature_matcher import FeatureEquipmentRecognizer, FeatureType
-
-recognizer = FeatureEquipmentRecognizer(
-    feature_type=FeatureType.ORB,        # 特征类型
-    min_match_count=8,                   # 最少特征匹配数量
-    match_ratio_threshold=0.75,           # 特征匹配比例阈值
-    min_homography_inliers=6             # 最小单应性内点数量
-)
-```
-
-#### 性能特点
-- **准确率**: > 98%（理想条件下）
-- **处理速度**: < 30ms/图像
-- **内存占用**: 中等
-- **适用场景**: 需要最高准确率的场景
-
-### 高级彩色模板匹配算法详解
-
-#### 算法原理
-高级彩色模板匹配算法在传统模板匹配的基础上，增加了掩码匹配和直方图验证，并保留了RGB颜色信息，提供更准确的匹配结果。
-
-#### 算法流程
-1. **图像预处理**: 标准化图像尺寸，保留RGB颜色信息
-2. **掩码创建**: 基于亮度和颜色饱和度创建智能掩码
-3. **彩色模板匹配**: 对每个颜色通道进行匹配并合并结果
-4. **颜色相似度计算**: 使用RGB三通道直方图计算颜色相似度
-5. **综合评分**: 结合模板匹配和颜色相似度计算最终置信度
-
-#### 关键技术
-- **多通道匹配**: 对R、G、B三个通道分别进行匹配
-- **智能掩码**: 结合亮度、饱和度和颜色差异创建掩码
-- **颜色直方图**: 使用巴氏距离计算颜色相似度
-- **差异放大**: 将微小的模板匹配差异放大，提高区分度
-
-#### 关键参数
-```python
-from src.advanced_matcher_standalone import AdvancedEquipmentRecognizer
-
-recognizer = AdvancedEquipmentRecognizer(
-    enable_masking=True,      # 启用掩码匹配
-    enable_histogram=True     # 启用直方图验证
-)
-```
-
-#### 性能特点
-- **准确率**: > 95%（理想条件下）
-- **处理速度**: < 50ms/图像
-- **内存占用**: 较高
-- **适用场景**: 需要颜色信息和较高准确率的场景
-
-### 传统dHash算法详解
-
-#### 算法原理
-dHash（difference Hash）算法通过计算图像相邻像素的差异来生成哈希值，然后比较两个哈希值的汉明距离来判断图像相似度。
-
-#### 算法流程
-1. **图像预处理**: 转换为灰度图并缩放到8x8尺寸
-2. **差异计算**: 计算水平方向相邻像素的差异
-3. **哈希生成**: 将差异转换为64位二进制哈希值
-4. **距离计算**: 计算两个哈希值的汉明距离
-5. **相似度转换**: 将汉明距离转换为相似度百分比
-
-#### 关键参数
-```python
-from src.equipment_recognizer import EquipmentRecognizer
-
-recognizer = EquipmentRecognizer(
-    default_threshold=80      # 默认匹配阈值
-)
-```
-
-#### 性能特点
-- **准确率**: > 90%（理想条件下）
-- **处理速度**: < 10ms/图像
-- **内存占用**: 最低
-- **适用场景**: 需要快速处理大量图像的场景
-
-### 算法对比与选择
-
-| 算法类型 | 准确率 | 速度 | 内存占用 | 颜色信息 | 几何不变性 | 推荐场景 |
-|---------|-------|------|---------|---------|-----------|----------|
-| 特征匹配 | >98% | 中等 | 中等 | 部分 | 优秀 | 高精度需求 |
-| 高级模板匹配 | >95% | 较慢 | 较高 | 完整 | 一般 | 颜色敏感场景 |
-| 传统dHash | >90% | 最快 | 最低 | 无 | 较差 | 大批量处理 |
-
-### 算法使用示例
-
-#### 统一接口使用
-```python
-from src.equipment_recognizer import EnhancedEquipmentRecognizer
-
-# 使用特征匹配算法（默认）
-recognizer = EnhancedEquipmentRecognizer(
-    algorithm_type="feature",
-    feature_type="ORB"
-)
-
-# 使用高级模板匹配算法
-recognizer = EnhancedEquipmentRecognizer(
-    algorithm_type="advanced",
-    enable_masking=True,
-    enable_histogram=True
-)
-
-# 使用传统dHash算法
-recognizer = EnhancedEquipmentRecognizer(
-    algorithm_type="traditional"
-)
-
-# 执行匹配
-similarity, is_match = recognizer.compare_images("base.png", "target.png")
-```
-
-#### 独立模块使用
-```python
-# 特征匹配器独立使用
-from src.feature_matcher import FeatureEquipmentRecognizer, FeatureType
-
-recognizer = FeatureEquipmentRecognizer(
-    feature_type=FeatureType.SIFT,
-    min_match_count=10,
-    match_ratio_threshold=0.7
-)
-
-result = recognizer.recognize_equipment("base.png", "target.png")
-print(f"匹配数量: {result.match_count}")
-print(f"单应性内点: {result.homography_inliers}")
-print(f"置信度: {result.confidence:.2f}%")
-
-# 高级模板匹配器独立使用
-from src.advanced_matcher_standalone import AdvancedEquipmentRecognizer
-
-recognizer = AdvancedEquipmentRecognizer(
-    enable_masking=True,
-    enable_histogram=True
-)
-
-result = recognizer.recognize_equipment("base.png", "target.png")
-print(f"模板相似度: {result.similarity:.2f}%")
-print(f"颜色相似度: {(1-result.hist_val)*100:.2f}%")
-print(f"综合置信度: {result.confidence:.2f}%")
-```
-
-### 算法调优建议
-
-#### 特征匹配算法调优
-1. **特征类型选择**:
-   - SIFT: 最高精度，但速度较慢
-   - ORB: 平衡速度和精度，推荐选择
-   - AKAZE: 适合非线性特征
-
-2. **参数调整**:
-   - `min_match_count`: 根据图像复杂度调整（6-15）
-   - `match_ratio_threshold`: 严格匹配用0.7，宽松匹配用0.8
-   - `min_homography_inliers`: 根据图像大小调整（4-10）
-
-#### 高级模板匹配算法调优
-1. **掩码设置**:
-   - 背景复杂的图像启用掩码
-   - 背景简单的图像可以禁用掩码提高速度
-
-2. **直方图验证**:
-   - 颜色差异大的图像启用直方图验证
-   - 颜色相似的图像可以禁用直方图验证
-
-#### 传统dHash算法调优
-1. **阈值设置**:
-   - 严格匹配: 85-90
-   - 一般匹配: 75-85
-   - 宽松匹配: 65-75
-
-
-cutter = ScreenshotCutter()
-success = cutter.cut_fixed(
-    screenshot_path="game_screenshot.png",
-    output_folder="images/cropped_equipment/20251122_163646/",  # 自动创建时间戳目录
-    grid=(5, 2),           # 5列2行的装备网格
-    item_width=210,        # 单个装备宽度（像素）
-    item_height=160,       # 单个装备高度（像素）
-    margin_left=10,        # 左侧边距（像素）
-    margin_top=275,        # 顶部边距（像素）
-    h_spacing=15,          # 装备横向间隔（像素）
-    v_spacing=20,          # 装备纵向间隔（像素）
-    draw_circle=True,      # 在装备上绘制圆形标记
-    save_original=True     # 保存带圆形标记的原图
-)
-```
-
-#### 2. 圆形标记功能
-每个切割后的装备图像都会添加圆形标记，便于识别和后续处理：
-
-- **圆形位置**: 装备图像顶部居中
-- **圆形尺寸**: 默认116像素直径
-- **圆形样式**: 红色边框，3像素宽度
-- **输出文件**:
-  - `item_0_0.png` - 带圆形标记的原图
-  - `item_0_0_circle.png` - 纯圆形区域（透明背景）
-
-#### 3. 自动目录管理
-系统会自动创建带时间戳的子目录来组织裁剪结果：
-```
-images/cropped_equipment/
-├── 20251122_163646/          # 2025年11月22日16:36:46的裁剪结果
-│   ├── 01.png               # 带圆形标记的装备图
-│   ├── 01_circle.png        # 纯圆形区域
-│   ├── 02.png
-│   ├── 02_circle.png
-│   └── ...
-└── 20251122_171523/          # 另一次裁剪的结果
-    └── ...
-```
-
-### 裁剪参数配置
-
-#### 网格布局参数
-- **grid**: (列数, 行数) - 装备在截图中的网格布局
-- **item_width**: 单个装备的宽度（像素）
-- **item_height**: 单个装备的高度（像素）
-- **margin_left**: 左侧边距（像素）
-- **margin_top**: 顶部边距（像素）
-- **h_spacing**: 装备之间的横向间隔（像素）
-- **v_spacing**: 装备之间的纵向间隔（像素）
-
-#### 圆形标记参数
-- **draw_circle**: 是否绘制圆形标记（布尔值）
-- **save_original**: 是否保存带圆形标记的原图（布尔值）
-- **circle_size**: 圆形直径（像素，默认116）
-
-### 裁剪结果分析
-
-系统会自动分析裁剪结果并提供详细报告：
-- 裁剪成功/失败的装备数量
-- 每个装备的保存路径
-- 裁剪参数和图像尺寸信息
-- 错误诊断和建议
-
-## 🎯 核心功能
-
-### 🔍 多重算法识别
-- **传统dHash算法**：快速图像相似度计算，适合大批量处理
-- **高级彩色模板匹配算法**：基于OpenCV的高精度匹配，支持掩码和直方图验证，保留RGB颜色信息
-- **特征匹配算法**：支持SIFT、ORB、AKAZE等特征提取算法，通过关键点匹配进行装备识别
-- **智能算法选择**：根据精度和速度需求自动选择最佳算法
-- **算法切换**：支持运行时动态切换识别算法
-
-### ✂️ 智能切割
-- **固定坐标切割**：适用于装备位置固定的界面，支持自定义网格布局和间距
-- **圆形标记功能**：在切割后的装备图片上添加圆形标记，便于识别和后续处理
-- **自动目录管理**：按时间戳自动创建子目录，避免文件覆盖
-- **切割参数配置**：支持通过配置文件自定义切割参数
-
-### 🎯 图像注释与报告
-- **原图标记**：在原始游戏截图上标注匹配的装备位置
-- **相似度显示**：可选显示每个匹配项的相似度百分比
-- **自定义样式**：支持自定义圆形颜色、大小和字体
-- **详细报告**：自动生成包含所有匹配信息的JSON和Markdown报告
-- **批量处理**：支持同时处理多个截图
-- **时间戳记录**：所有操作和结果都带有详细的时间戳记录
-
-### 📊 批量处理
-- 支持同时处理多个装备图像
-- 自动生成详细的匹配报告
-- JSON格式的结果导出
-- 性能优化和并行处理支持
-
-### ⚙️ 配置管理
-- **统一配置系统**：通过config.json管理所有参数
-- **动态配置更新**：支持运行时修改配置
-- **配置分类管理**：识别、切割、路径、日志、注释、性能等分类配置
-- **默认配置**：提供开箱即用的默认设置
-- **算法参数配置**：支持各种算法的详细参数调整
-
-## 📖 使用示例
-
-### 基本使用
-
-```python
-from src.equipment_recognizer import EnhancedEquipmentRecognizer
-from src.screenshot_cutter import ScreenshotCutter
-
-# 初始化增强版识别器（默认使用特征匹配算法）
-recognizer = EnhancedEquipmentRecognizer(
-    default_threshold=80,
-    algorithm_type="feature",  # 使用特征匹配算法
-    feature_type="ORB",        # 使用ORB特征
-    min_match_count=8,         # 最少特征匹配数量
-    match_ratio_threshold=0.75 # 特征匹配比例阈值
-)
-
-# 比较两张图像
-similarity, is_match = recognizer.compare_images("img1.png", "img2.png")
-print(f"相似度: {similarity}%, 匹配: {is_match}")
-
-# 切割截图（带圆形标记）
-cutter = ScreenshotCutter()
-cutter.cut_fixed(
-    "screenshot.png",
-    "output/",
-    grid=(5, 2),           # 5列2行
-    item_width=210,        # 装备宽度
-    item_height=160,       # 装备高度
-    margin_left=10,        # 左边距
-    margin_top=275,        # 上边距
-    h_spacing=15,          # 横向间隔
-    v_spacing=20,          # 纵向间隔
-    draw_circle=True,      # 绘制圆形标记
-    save_original=True     # 保存原图
-)
-```
-
-### 使用配置管理器
-
-```python
-from src.config_manager import get_config_manager, create_recognizer_from_config
-
-# 获取配置管理器
-config_manager = get_config_manager()
-
-# 从配置创建识别器
-recognizer = create_recognizer_from_config(config_manager)
-
-# 获取当前算法信息
-info = recognizer.get_algorithm_info()
-print(f"当前算法: {info['current_algorithm']}")
-print(f"掩码匹配: {info.get('masking_enabled', False)}")
-print(f"直方图验证: {info.get('histogram_enabled', False)}")
-```
-
-### 完整流程
-
-```python
-from src.main import EquipmentMatcher
-from src.config_manager import get_config_manager
-
-# 初始化配置管理器和匹配器
-config_manager = get_config_manager()
-matcher = EquipmentMatcher(config_manager)
-
-# 处理截图
-matched_items = matcher.process_screenshot(
-    screenshot_path="images/game_screenshots/screenshot.png",
-    base_img_path="images/base_equipment/target_equipment.webp",
-    output_folder="output",
-    cutting_method='auto',
-    threshold=80
-)
-
-print(f"识别到 {len(matched_items)} 个匹配的装备")
-```
-
-### 高级算法示例
-
-```python
-# 高级彩色模板匹配算法
-from src.advanced_matcher_standalone import AdvancedEquipmentRecognizer
-
-recognizer = AdvancedEquipmentRecognizer(
-    enable_masking=True,     # 启用掩码匹配
-    enable_histogram=True    # 启用直方图验证
-)
-
-result = recognizer.recognize_equipment("base.png", "target.png")
-print(f"装备名称: {result.item_name}")
-print(f"置信度: {result.confidence:.2f}%")
-print(f"匹配方式: {result.matched_by.name}")
-print(f"模板相似度: {result.similarity:.2f}%")
-print(f"颜色相似度: {(1-result.hist_val)*100:.2f}%")
-
-# 特征匹配算法
-from src.feature_matcher import FeatureEquipmentRecognizer, FeatureType
-
-recognizer = FeatureEquipmentRecognizer(
-    feature_type=FeatureType.ORB,
-    min_match_count=8,
-    match_ratio_threshold=0.75,
-    min_homography_inliers=6
-)
-
-result = recognizer.recognize_equipment("base.png", "target.png")
-print(f"装备名称: {result.item_name}")
-print(f"匹配数量: {result.match_count}")
-print(f"单应性内点: {result.homography_inliers}")
-print(f"置信度: {result.confidence:.2f}%")
-print(f"有效匹配: {result.is_valid_match}")
-```
-
-### 图像注释示例
-
-```python
-from src.image_annotator import ImageAnnotator
-from src.config_manager import get_config_manager
-
-# 获取配置
-config_manager = get_config_manager()
-
-# 创建注释器
-annotator = ImageAnnotator(
-    circle_color=config_manager.get_circle_color(),
-    circle_width=config_manager.get_circle_width(),
-    font_size=config_manager.get_font_size(),
-    show_similarity_text=config_manager.get_show_similarity_text()
-)
-
-# 定义匹配项
-matched_items = [("item_0_0.png", 95.2), ("item_0_3.png", 87.5)]
-
-# 切割参数
-cutting_params = {
-    'grid': (5, 2),
-    'item_width': 210,
-    'item_height': 160,
-    'margin_left': 10,
-    'margin_top': 275,
-    'h_spacing': 15,
-    'v_spacing': 20
-}
-
-# 生成注释图像
-annotated_path = annotator.annotate_screenshot_with_matches(
-    screenshot_path="images/game_screenshots/screenshot.png",
-    matched_items=matched_items,
-    cutting_params=cutting_params
-)
-
-print(f"注释图像已保存到: {annotated_path}")
-```
-
-## ⚙️ 参数配置
-
-### 配置文件系统
-
-项目使用统一的配置文件 `config.json` 管理所有参数：
-
-```json
-{
-  "recognition": {
-    "default_threshold": 80,
-    "algorithm_type": "feature",
-    "feature_type": "ORB",
-    "min_match_count": 8,
-    "match_ratio_threshold": 0.75,
-    "min_homography_inliers": 6,
-    "use_advanced_algorithm": true,
-    "enable_masking": true,
-    "enable_histogram": true,
-    "algorithm_description": "特征匹配算法(ORB)提供最准确的装备识别，高级模板匹配提供彩色匹配，传统dHash算法提供更快的处理速度"
-  },
-  "cutting": {
-    "default_method": "fixed",
-    "fixed_grid": [6, 2],
-    "fixed_item_width": 100,
-    "fixed_item_height": 120,
-    "fixed_margin_left": 20,
-    "fixed_margin_top": 350,
-    "contour_min_area": 800,
-    "contour_max_area": 50000
-  },
-  "paths": {
-    "images_dir": "images",
-    "base_equipment_dir": "base_equipment",
-    "game_screenshots_dir": "game_screenshots",
-    "cropped_equipment_dir": "cropped_equipment",
-    "logs_dir": "recognition_logs"
-  },
-  "logging": {
-    "enable_logging": true,
-    "log_level": "INFO",
-    "include_algorithm_info": true,
-    "include_performance_metrics": true
-  },
-  "performance": {
-    "enable_caching": true,
-    "cache_size": 100,
-    "parallel_processing": false,
-    "max_workers": 4
-  },
-  "ui": {
-    "show_algorithm_selection": true,
-    "show_performance_info": true,
-    "show_detailed_results": true
-  },
-  "annotation": {
-    "enable_annotation": true,
-    "circle_color": "red",
-    "circle_width": 3,
-    "font_size": 12,
-    "show_similarity_text": true,
-    "auto_generate_annotation": false,
-    "annotation_output_dir": "annotated_screenshots"
-  }
-}
-```
-
-### 算法选择配置
-
-#### 特征匹配算法（默认）
-- **algorithm_type**: "feature"
-- **feature_type**: "SIFT"/"ORB"/"AKAZE"
-- **min_match_count**: 最少特征匹配数量（默认8）
-- **match_ratio_threshold**: 特征匹配比例阈值（默认0.75）
-- **min_homography_inliers**: 最小单应性内点数量（默认6）
-
-#### 高级彩色模板匹配算法
-- **algorithm_type**: "advanced"
-- **enable_masking**: 启用掩码匹配（默认true）
-- **enable_histogram**: 启用直方图验证（默认true）
-
-#### 传统dHash算法
-- **algorithm_type**: "traditional"
-
-### 匹配阈值
-- **范围**: 0-100
-- **推荐值**: 75-85
-- **说明**: 越高越严格，越低越宽松
-
-### 切割参数
-
-#### 固定坐标切割
-```python
-cutter.cut_fixed(
-    screenshot_path="screenshot.png",
-    output_folder="output/",
-    grid=(5, 2),           # 网格布局（列数，行数）
-    item_width=210,        # 装备宽度
-    item_height=160,       # 装备高度
-    margin_left=10,        # 左边距
-    margin_top=275,        # 上边距
-    h_spacing=15,          # 装备横向间隔
-    v_spacing=20,         # 装备纵向间隔
-    draw_circle=True,      # 是否绘制圆形标记
-    save_original=True     # 是否保存原图
-)
-```
-
-#### 圆形标记功能
-- **draw_circle**: 是否在切割后的图片上绘制圆形标记
-- **save_original**: 是否保存带圆形标记的原图
-- **circle_size**: 圆形直径（默认116像素）
-
-## 📊 性能特点
-
-- **多重算法**: 传统dHash算法（< 10ms）、特征匹配算法（< 30ms）和高级彩色模板匹配算法（< 50ms）
-- **高准确率**: 特征匹配算法在理想条件下准确率 > 98%，高级算法 > 95%，传统算法 > 90%
-- **批量处理**: 支持同时处理数百张图像，自动按时间戳组织结果
-- **内存优化**: 低内存占用，适合长时间运行
-- **智能缓存**: 支持模板缓存和结果缓存，提升重复识别效率
-- **彩色处理**: 高级算法保留RGB颜色信息，提供更准确的匹配
-
-## 🔧 高级功能
-
-### 算法对比分析
-```python
-# 对比三种算法的性能
-from src.equipment_recognizer import EnhancedEquipmentRecognizer
-
-# 特征匹配算法
-recognizer = EnhancedEquipmentRecognizer(algorithm_type="feature", feature_type="ORB")
-similarity1, match1 = recognizer.compare_images("img1.png", "img2.png")
-
-# 高级彩色模板匹配算法
-recognizer = EnhancedEquipmentRecognizer(algorithm_type="advanced", enable_masking=True, enable_histogram=True)
-similarity2, match2 = recognizer.compare_images("img1.png", "img2.png")
-
-# 传统dHash算法
-recognizer = EnhancedEquipmentRecognizer(algorithm_type="traditional")
-similarity3, match3 = recognizer.compare_images("img1.png", "img2.png")
-
-print(f"特征匹配算法: {similarity1:.2f}%")
-print(f"高级模板匹配算法: {similarity2:.2f}%")
-print(f"传统dHash算法: {similarity3:.2f}%")
-```
-
-### 批量处理多个截图
-```python
-# 运行高级示例
-python examples/advanced_usage.py
-```
-
-### 阈值优化分析
-```python
-# 多阈值分析，找出最佳匹配阈值
-results = matcher.multi_threshold_analysis(
-    base_img_path="base.png",
-    crop_folder="cropped/",
-    thresholds=[60, 70, 80, 90]
-)
-```
-
-### 性能基准测试
-```python
-# 测试系统性能
-matcher.benchmark_performance(
-    base_img_path="base.png",
-    test_images_folder="test_images/"
-)
-```
-
-### 独立模块使用
-```python
-# 使用独立的高级识别器
-from src.advanced_matcher_standalone import AdvancedEquipmentRecognizer
-
-recognizer = AdvancedEquipmentRecognizer(enable_masking=True, enable_histogram=True)
-result = recognizer.recognize_equipment("base.png", "target.png")
-
-# 使用独立的特征匹配器
-from src.feature_matcher import FeatureEquipmentRecognizer, FeatureType
-
-recognizer = FeatureEquipmentRecognizer(feature_type=FeatureType.ORB)
-result = recognizer.recognize_equipment("base.png", "target.png")
-```
-
-### 圆形标记功能
-```python
-# 在切割后的装备上添加圆形标记
-from src.screenshot_cutter import ScreenshotCutter
-
-cutter = ScreenshotCutter()
-cutter.cut_fixed(
-    screenshot_path="screenshot.png",
-    output_folder="output/",
-    grid=(5, 2),
-    item_width=210,
-    item_height=160,
-    margin_left=10,
-    margin_top=275,
-    draw_circle=True,      # 启用圆形标记
-    save_original=True     # 保存带圆形标记的原图
-)
-```
-
-## 🛠️ 故障排除
-
-### 常见问题
-
-**Q: 识别准确率不高？**
-A:
-1. 尝试切换到特征匹配算法（默认最准确）
-2. 调整匹配阈值
-3. 确保基准装备图清晰
-4. 对于特征匹配：调整min_match_count和match_ratio_threshold
-5. 对于高级模板匹配：启用掩码匹配和直方图验证
-6. 尝试不同的切割方式
-
-**Q: 特征匹配算法不可用？**
-A:
-1. 检查src目录中是否存在feature_matcher.py
-2. 确保OpenCV正确安装（包含contrib模块）
-3. 查看错误日志中的具体信息
-4. 尝试使用ORB特征类型（不需要额外依赖）
-
-**Q: 高级模板匹配算法不可用？**
-A:
-1. 检查src目录中是否存在advanced_matcher_standalone.py
-2. 确保OpenCV正确安装
-3. 查看错误日志中的具体信息
-
-**Q: 特征匹配速度慢？**
-A:
-1. 使用ORB特征类型（比SIFT快）
-2. 降低min_match_count值
-3. 启用缓存功能
-4. 减少图像尺寸
-
-**Q: 切割效果不好？**
-A:
-1. 调整切割参数（grid、item_width、item_height等）
-2. 检查截图质量
-3. 调整margin_left和margin_top参数
-4. 确保h_spacing和v_spacing适合实际装备间隔
-
-**Q: 圆形标记不准确？**
-A:
-1. 调整circle_size参数（默认116像素）
-2. 检查装备图像的实际尺寸
-3. 确保draw_circle参数设置为True
-
-**Q: 处理速度慢？**
-A:
-1. 切换到传统dHash算法（最快但精度略低）
-2. 使用ORB特征类型（特征匹配中最快）
-3. 降低图像分辨率
-4. 使用更小的切割区域
-5. 启用缓存功能
-6. 启用并行处理（在配置中设置）
-
-**Q: 特征匹配结果不稳定？**
-A:
-1. 增加min_match_count值（提高匹配要求）
-2. 降低match_ratio_threshold值（更严格的匹配）
-3. 增加min_homography_inliers值（更严格的几何验证）
-4. 检查图像质量和光照条件
-
-**Q: 高级模板匹配颜色相似度低？**
-A:
-1. 启用直方图验证
-2. 检查图像的颜色一致性
-3. 调整颜色预处理参数
-4. 确保图像格式正确（RGB）
-
-### 调试模式
-
-```python
-# 启用详细日志
-import logging
-logging.basicConfig(level=logging.DEBUG)
-```
-
-## 📈 扩展开发
-
-### 添加新的识别算法
-```python
-class ExtendedEquipmentRecognizer(EquipmentRecognizer):
-    def get_phash(self, image_path):
-        """实现pHash算法"""
-        pass
-    
-    def get_ahash(self, image_path):
-        """实现aHash算法"""
-        pass
-```
-
-### 自定义切割策略
-```python
-class CustomCutter(ScreenshotCutter):
-    @staticmethod
-    def cut_ml_based(screenshot_path, output_folder):
-        """基于机器学习的切割"""
-        pass
-```
-
-## 📄 许可证
-
-本项目采用 [MIT 许可证](LICENSE)。
-
-## 🤝 贡献
-
-欢迎提交 Issue 和 Pull Request！
-
-1. Fork 项目
-2. 创建功能分支
-3. 提交更改
-4. 发起 Pull Request
-
-## 📞 支持
-
-如有问题或建议：
-- 提交 [GitHub Issue](../../issues)
-- 查看 [详细文档](PROJECT.md)
-
-## 🚀 快速开始
-
-### 1. 环境准备
-```bash
-# 安装依赖
-pip install -r requirements.txt
-```
-
-### 2. 准备数据
-- 将基准装备图放入 `images/base_equipment/` 目录
-- 将游戏截图放入 `images/game_screenshots/` 目录
-
-### 3. 运行程序
-```bash
-# 使用启动脚本（推荐）
-python run_recognition_start.py
-
-# 或使用交互式启动脚本
-python start.py
-
-# 或直接运行主程序
-python src/main.py
-```
-
-### 4. 查看结果
-- 切割后的装备保存在 `images/cropped_equipment/` 目录
-- 识别日志保存在 `recognition_logs/` 目录
-
-### 5. 运行测试
-```bash
-# 运行统一测试程序（推荐）
-python tests/test_unified.py
-
-# 运行系统基础测试
-python tests/test_system.py
-
-# 运行图像注释测试
-python tests/test_image_annotator.py
-
-# 运行基础使用示例
-python tests/examples/basic_usage.py
-
-# 运行高级使用示例
-python tests/examples/advanced_usage.py
-```
-
-## 📚 更多文档
-
-- [详细使用说明](USAGE.md)
-- [技术规格文档](TECHNICAL_SPECIFICATION.md)
-- [项目架构文档](PROJECT.md)
-- [图像注释功能指南](docs/ANNOTATION_USAGE.md)
-- [更新日志](CHANGELOG.md)
-
----
-
-**注意**: 本项目仅用于学习和研究目的，请遵守相关游戏的使用条款。
-
-*最后更新: 2025年11月*
-
-## 🚀 run_recognition_start.py 启动脚本
-
-`run_recognition_start.py` 是游戏装备图像识别系统的主要启动脚本，提供清晰的交互式界面，按照三步工作流程引导用户使用系统。
-
-### 功能概述
-
-该脚本实现了完整的三步工作流程：
-1. **步骤1**：获取原始图片 - 检查和选择游戏截图
-2. **步骤2**：分割原始图片 - 将游戏截图分割成单个装备图片
-3. **步骤3**：装备识别匹配 - 使用基准装备对比切割后的图片
-
-### 主要函数
-
-#### 系统检查函数
-
-- `check_dependencies()`: 检查系统依赖是否已安装（cv2, PIL, numpy）
-- `check_data_files()`: 检查数据文件是否存在（基准装备图、游戏截图等）
-
-#### 工作流程函数
-
-- `step1_get_screenshots(auto_mode=True)`: 步骤1 - 获取原始图片
-- `step2_cut_screenshots(auto_mode=True, auto_clear_old=True, auto_select_all=True, save_original=True)`: 步骤2 - 分割原始图片
-- `step3_match_equipment(auto_mode=True, auto_select_base=True, auto_threshold=None, auto_match_all=False)`: 步骤3 - 装备识别匹配
-
-#### 高级功能函数
-
-- `run_full_workflow()`: 运行完整工作流程（交互式）
-- `run_full_auto_workflow(auto_clear_old=True, auto_select_all=True, save_original=True, auto_select_base=True, auto_threshold=None, auto_generate_annotation=False)`: 运行全自动工作流程
-- `generate_annotated_screenshots()`: 生成带圆形标记的原图注释
-- `clear_previous_results()`: 清理之前的结果，保留主文件
-
-### 使用方法
-
-#### 直接运行全自动流程
-
-```bash
-python run_recognition_start.py
-```
-
-脚本会自动执行完整的三步工作流程，无需任何手动操作。
-
-#### 交互式菜单
-
-如果需要手动控制流程，可以修改脚本中的 `main()` 函数，调用 `show_menu()` 显示交互式菜单：
-
-```python
-def main():
-    """主函数"""
-    print("欢迎使用游戏装备图像识别系统！")
-    print("本系统按照三步工作流程进行：")
-    print("1. 获取原始图片 → 2. 分割原始图片 → 3. 装备识别匹配")
-    
-    while True:
-        show_menu()
-        choice = input("\n请选择操作 (0-12): ").strip()
-        
-        if choice == '1':
-            step1_get_screenshots(auto_mode=False)
-        elif choice == '2':
-            step2_cut_screenshots(auto_mode=False)
-        elif choice == '3':
-            step3_match_equipment(auto_mode=False)
-        elif choice == '4':
-            run_full_workflow()
-        elif choice == '5':
-            run_full_auto_workflow()
-        # ... 其他选项
-        elif choice == '0':
-            print("感谢使用，再见！")
-            break
-        else:
-            print("无效选择，请重新输入")
-```
-
-### 全自动工作流程参数
-
-`run_full_auto_workflow()` 函数支持以下参数：
-
-- `auto_clear_old`: 是否自动清理旧文件（默认True）
-- `auto_select_all`: 是否自动选择所有截图（默认True）
-- `save_original`: 是否保存原图（默认True）
-- `auto_select_base`: 是否自动选择基准装备（默认True）
-- `auto_threshold`: 自定义匹配阈值（默认None，使用配置文件中的值）
-- `auto_generate_annotation`: 是否自动生成注释（默认False）
-
-### 自定义使用示例
-
-#### 只执行特定步骤
-
-```python
-# 只执行步骤1
-step1_get_screenshots(auto_mode=True)
-
-# 只执行步骤2（自动模式）
-step2_cut_screenshots(auto_mode=True, auto_clear_old=True, auto_select_all=True, save_original=True)
-
-# 只执行步骤3（自动模式，使用所有基准装备）
-step3_match_equipment(auto_mode=True, auto_select_base=True, auto_threshold=None, auto_match_all=True)
-```
-
-#### 生成带标记的原图注释
-
-```python
-# 生成带圆形标记的原图注释
-generate_annotated_screenshots()
-```
-
-#### 清理旧结果
-
-```python
-# 清理切割结果和日志
-clear_previous_results()
-```
-
-### 日志和输出
-
-- 切割后的装备保存在 `images/cropped_equipment/` 目录，按时间戳组织
-- 识别日志保存在 `recognition_logs/` 目录
-- 匹配结果会自动重命名为基准装备名称
-
-### 注意事项
-
-1. 确保在运行脚本前已准备好基准装备图和游戏截图
-2. 脚本会自动检查和安装必要的依赖
-3. 全自动模式适合日常使用，交互式模式适合调试和特定需求
-4. 可以通过修改 `config.json` 文件调整识别参数和阈值
-
-### 完整代码
-
-以下是 `run_recognition_start.py` 的完整代码：
-
-```python
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
@@ -1735,6 +661,231 @@ def step3_match_equipment(auto_mode=True, auto_select_base=True, auto_threshold=
         print(f"❌ 匹配过程中出错: {e}")
         return False
 
+def generate_annotated_screenshots():
+    """生成带圆形标记的原图注释"""
+    print("\n" + "=" * 60)
+    print("生成带圆形标记的原图注释")
+    print("=" * 60)
+    print("此功能将在原始游戏截图上标注匹配的装备位置")
+    print("-" * 60)
+    
+    # 检查依赖
+    if not check_dependencies():
+        return False
+    
+    # 检查游戏截图
+    game_screenshots_dir = "images/game_screenshots"
+    screenshot_files = []
+    for filename in os.listdir(game_screenshots_dir):
+        if filename.lower().endswith(('.png', '.jpg', '.jpeg', '.webp')):
+            screenshot_files.append(filename)
+    
+    if not screenshot_files:
+        print("❌ 未找到游戏截图")
+        return False
+    
+    # 选择截图
+    print(f"找到 {len(screenshot_files)} 个游戏截图，选择要注释的截图:")
+    for i, filename in enumerate(sorted(screenshot_files), 1):
+        print(f"  {i}. {filename}")
+    
+    print(f"\n请输入截图编号 (1-{len(screenshot_files)})，或输入 'all' 注释所有截图:")
+    choice = input().strip()
+    
+    screenshots_to_process = []
+    if choice.lower() == 'all':
+        screenshots_to_process = sorted(screenshot_files)
+    else:
+        try:
+            index = int(choice) - 1
+            if 0 <= index < len(screenshot_files):
+                screenshots_to_process = [sorted(screenshot_files)[index]]
+            else:
+                print("❌ 无效的截图编号")
+                return False
+        except ValueError:
+            print("❌ 无效的输入")
+            return False
+    
+    # 检查是否有匹配结果
+    cropped_equipment_dir = "images/cropped_equipment"
+    cropped_files = []
+    
+    # 检查是否有时间命名的子目录
+    subdirs = []
+    for item in os.listdir(cropped_equipment_dir):
+        item_path = os.path.join(cropped_equipment_dir, item)
+        if os.path.isdir(item_path) and item.replace('_', '').replace(':', '').isdigit():
+            subdirs.append(item)
+    
+    if subdirs:
+        # 如果有时间命名的子目录，使用最新的一个
+        latest_dir = sorted(subdirs)[-1]
+        latest_dir_path = os.path.join(cropped_equipment_dir, latest_dir)
+        print(f"✓ 找到时间目录: {latest_dir}")
+        
+        for filename in os.listdir(latest_dir_path):
+            if filename.lower().endswith(('.png', '.jpg', '.jpeg', '.webp')):
+                cropped_files.append(os.path.join(latest_dir, filename))
+        
+        # 更新切割装备目录为最新的时间目录
+        cropped_equipment_dir = latest_dir_path
+    else:
+        # 如果没有时间命名的子目录，直接在主目录中查找
+        for filename in os.listdir(cropped_equipment_dir):
+            if filename.lower().endswith(('.png', '.jpg', '.jpeg', '.webp')):
+                cropped_files.append(filename)
+    
+    if not cropped_files:
+        print("❌ 未找到切割装备图片，请先执行步骤2和步骤3")
+        return False
+    
+    # 选择基准装备
+    base_equipment_dir = "images/base_equipment"
+    base_image_files = []
+    for filename in os.listdir(base_equipment_dir):
+        if filename.lower().endswith(('.png', '.jpg', '.jpeg', '.webp')):
+            base_image_files.append(filename)
+    
+    if not base_image_files:
+        print("❌ 未找到基准装备图片")
+        return False
+    
+    print(f"找到 {len(base_image_files)} 个基准装备:")
+    for i, filename in enumerate(sorted(base_image_files), 1):
+        print(f"  {i}. {filename}")
+    
+    print(f"\n请输入基准装备编号 (1-{len(base_image_files)}):")
+    try:
+        base_index = int(input().strip()) - 1
+        if 0 <= base_index < len(base_image_files):
+            base_image = sorted(base_image_files)[base_index]
+        else:
+            print("❌ 无效的基准装备编号")
+            return False
+    except ValueError:
+        print("❌ 无效的输入")
+        return False
+    
+    base_image_path = os.path.join(base_equipment_dir, base_image)
+    
+    # 设置匹配阈值
+    print(f"\n当前默认匹配阈值为 80%")
+    print("是否使用自定义阈值？(y/n)")
+    use_custom_threshold = input().strip().lower() == 'y'
+    
+    threshold = 80.0
+    if use_custom_threshold:
+        try:
+            threshold = float(input("请输入匹配阈值 (0-100): ").strip())
+            if not 0 <= threshold <= 100:
+                print("❌ 阈值必须在0-100之间，将使用默认值80%")
+                threshold = 80.0
+        except ValueError:
+            print("❌ 无效的阈值，将使用默认值80%")
+            threshold = 80.0
+    
+    # 执行匹配和注释
+    try:
+        try:
+            from src.main import EquipmentMatcher
+            from src.config_manager import get_config_manager
+            from src.image_annotator import ImageAnnotator
+        except ImportError as e:
+            print(f"❌ 导入错误: {e}")
+            print("尝试直接导入模块...")
+            import sys
+            sys.path.append(os.path.join(os.path.dirname(__file__), 'src'))
+            from main import EquipmentMatcher
+            from config_manager import get_config_manager
+            from image_annotator import ImageAnnotator
+        
+        # 获取配置管理器
+        config_manager = get_config_manager()
+        
+        # 检查注释功能是否启用
+        if not config_manager.get_annotation_enabled():
+            print("❌ 注释功能未启用，请在配置文件中启用")
+            return False
+        
+        # 创建匹配器
+        matcher = EquipmentMatcher(config_manager)
+        
+        # 从配置创建注释器
+        annotator = ImageAnnotator(
+            circle_color=config_manager.get_circle_color(),
+            circle_width=config_manager.get_circle_width(),
+            font_size=config_manager.get_font_size(),
+            show_similarity_text=config_manager.get_show_similarity_text()
+        )
+        
+        print(f"使用注释配置:")
+        print(f"  - 圆形颜色: {config_manager.get_circle_color()}")
+        print(f"  - 圆形宽度: {config_manager.get_circle_width()}像素")
+        print(f"  - 字体大小: {config_manager.get_font_size()}像素")
+        print(f"  - 显示相似度: {'是' if config_manager.get_show_similarity_text() else '否'}")
+        
+        # 执行匹配
+        print(f"\n开始匹配，使用基准装备: {base_image}")
+        print(f"匹配阈值: {threshold}%")
+        print("-" * 60)
+        
+        matched_items = matcher.batch_compare(
+            base_img_path=base_image_path,
+            crop_folder=cropped_equipment_dir,
+            threshold=threshold
+        )
+        
+        if not matched_items:
+            print("❌ 未找到匹配的装备，无法生成注释")
+            return False
+        
+        print(f"\n✅ 找到 {len(matched_items)} 个匹配项")
+        
+        # 从配置文件获取切割参数（与step2_cut_screenshots中的参数保持一致）
+        cutting_params = config_manager.get_cutting_params()
+        print(f"使用切割参数: {cutting_params}")
+        
+        # 为每个截图生成注释
+        annotated_images = []
+        for screenshot in screenshots_to_process:
+            screenshot_path = os.path.join(game_screenshots_dir, screenshot)
+            print(f"\n正在注释截图: {screenshot}")
+            
+            # 生成注释图像
+            annotated_path = annotator.annotate_screenshot_with_matches(
+                screenshot_path=screenshot_path,
+                matched_items=matched_items,
+                cutting_params=cutting_params
+            )
+            
+            annotated_images.append(annotated_path)
+            
+            # 创建注释报告
+            report_path = annotator.create_annotation_report(
+                screenshot_path=screenshot_path,
+                matched_items=matched_items,
+                annotated_image_path=annotated_path,
+                output_dir="recognition_logs"
+            )
+        
+        print(f"\n✅ 注释完成！共生成 {len(annotated_images)} 个注释图像:")
+        for i, path in enumerate(annotated_images, 1):
+            print(f"  {i}. {path}")
+        
+        print("\n📝 注释说明:")
+        print("- 红色圆形标记表示匹配的装备位置")
+        print("- 圆形上方的数字表示匹配相似度百分比")
+        print("- 详细报告保存在 recognition_logs 目录中")
+        
+        return True
+        
+    except Exception as e:
+        print(f"❌ 注释过程中出错: {e}")
+        import traceback
+        traceback.print_exc()
+        return False
+
 def run_full_workflow():
     """运行完整工作流程"""
     print("\n" + "=" * 60)
@@ -1911,6 +1062,54 @@ def run_full_auto_workflow(auto_clear_old=True, auto_select_all=True, save_origi
     print("=" * 60)
     return True
 
+def run_test():
+    """运行系统测试"""
+    print("\n运行系统测试...")
+    print("=" * 50)
+    
+    try:
+        subprocess.check_call([sys.executable, "tests/test_system.py"])
+        return True
+    except subprocess.CalledProcessError:
+        print("系统测试失败")
+        return False
+
+def run_basic_example():
+    """运行基础示例"""
+    print("\n运行基础使用示例...")
+    print("=" * 50)
+    
+    try:
+        subprocess.check_call([sys.executable, "tests/examples/basic_usage.py"])
+        return True
+    except subprocess.CalledProcessError:
+        print("基础示例运行失败")
+        return False
+
+def run_advanced_example():
+    """运行高级示例"""
+    print("\n运行高级使用示例...")
+    print("=" * 50)
+    
+    try:
+        subprocess.check_call([sys.executable, "tests/examples/advanced_usage.py"])
+        return True
+    except subprocess.CalledProcessError:
+        print("高级示例运行失败")
+        return False
+
+def run_main_program():
+    """运行主程序"""
+    print("\n运行主程序...")
+    print("=" * 50)
+    
+    try:
+        subprocess.check_call([sys.executable, "src/main.py"])
+        return True
+    except subprocess.CalledProcessError:
+        print("主程序运行失败")
+        return False
+
 def clear_previous_results():
     """清理之前的结果，保留主文件"""
     print("\n" + "=" * 60)
@@ -2014,4 +1213,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-```

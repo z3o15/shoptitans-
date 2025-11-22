@@ -8,13 +8,15 @@
   "cutting": {
     "default_method": "fixed",
     "fixed_grid": [
-      6,
+      5,
       2
     ],
-    "fixed_item_width": 100,
-    "fixed_item_height": 120,
-    "fixed_margin_left": 20,
-    "fixed_margin_top": 350,
+    "fixed_item_width": 210,
+    "fixed_item_height": 160,
+    "fixed_margin_left": 10,
+    "fixed_margin_top": 275,
+    "fixed_h_spacing": 15,
+    "fixed_v_spacing": 20,
     "contour_min_area": 800,
     "contour_max_area": 50000
   },

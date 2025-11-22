@@ -42,11 +42,13 @@ class ConfigManager:
             },
             "cutting": {
                 "default_method": "fixed",
-                "fixed_grid": [6, 2],
-                "fixed_item_width": 100,
-                "fixed_item_height": 120,
-                "fixed_margin_left": 20,
-                "fixed_margin_top": 350,
+                "fixed_grid": [5, 2],
+                "fixed_item_width": 210,
+                "fixed_item_height": 160,
+                "fixed_margin_left": 10,
+                "fixed_margin_top": 275,
+                "fixed_h_spacing": 15,
+                "fixed_v_spacing": 20,
                 "contour_min_area": 800,
                 "contour_max_area": 50000
             },
@@ -148,6 +150,23 @@ class ConfigManager:
             切割配置字典
         """
         return self.config.get("cutting", {})
+    
+    def get_cutting_params(self) -> Dict[str, Any]:
+        """获取切割参数
+        
+        Returns:
+            包含所有切割参数的字典
+        """
+        cutting_config = self.get_cutting_config()
+        return {
+            'grid': tuple(cutting_config.get("fixed_grid", [5, 2])),
+            'item_width': cutting_config.get("fixed_item_width", 210),
+            'item_height': cutting_config.get("fixed_item_height", 160),
+            'margin_left': cutting_config.get("fixed_margin_left", 10),
+            'margin_top': cutting_config.get("fixed_margin_top", 275),
+            'h_spacing': cutting_config.get("fixed_h_spacing", 15),
+            'v_spacing': cutting_config.get("fixed_v_spacing", 20)
+        }
     
     def get_paths_config(self) -> Dict[str, Any]:
         """获取路径相关配置
@@ -445,7 +464,10 @@ def create_recognizer_from_config(config_manager: Optional[ConfigManager] = None
     
     rec_config = config_manager.get_recognition_config()
     
-    from .equipment_recognizer import EnhancedEquipmentRecognizer
+    try:
+        from .equipment_recognizer import EnhancedEquipmentRecognizer
+    except ImportError:
+        from equipment_recognizer import EnhancedEquipmentRecognizer
     
     # 获取算法类型，默认使用特征匹配
     algorithm_type = rec_config.get("algorithm_type", "feature")
