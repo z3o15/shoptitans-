@@ -13,7 +13,10 @@ from typing import Dict, Any, List, Optional
 from dataclasses import dataclass
 from datetime import datetime
 
-from .ocr_config_manager import OCRConfigManager
+try:
+    from .ocr_config_manager import OCRConfigManager
+except ImportError:
+    from ocr_config_manager import OCRConfigManager
 
 
 @dataclass
@@ -22,7 +25,8 @@ class CSVRecord:
     timestamp: str
     original_filename: str
     new_filename: str
-    recognized_amount: str
+    equipment_name: str  # 新增：装备名称
+    amount: str  # 新增：金额
     processing_time: float
     status: str
     error_message: Optional[str] = None
@@ -117,19 +121,13 @@ class CSVRecordManager:
             # 获取表头
             headers = self._get_csv_headers()
             
-            # 准备记录数据
+            # 准备记录数据 - 包含五个字段：original_filename、new_filename、equipment_name、amount和confidence
             record_data = {
-                'timestamp': record.timestamp,
                 'original_filename': record.original_filename,
                 'new_filename': record.new_filename,
-                'recognized_amount': record.recognized_amount,
-                'processing_time': record.processing_time,
-                'status': record.status,
-                'error_message': record.error_message or "",
-                'recognized_text': record.recognized_text or "",
-                'confidence': record.confidence or "",
-                'original_path': record.original_path or "",
-                'new_path': record.new_path or ""
+                'equipment_name': record.equipment_name,  # 新增
+                'amount': record.amount,  # 新增
+                'confidence': record.confidence or ""
             }
             
             # 写入记录
@@ -241,7 +239,8 @@ class CSVRecordManager:
                         timestamp=row.get('timestamp', ''),
                         original_filename=row.get('original_filename', ''),
                         new_filename=row.get('new_filename', ''),
-                        recognized_amount=row.get('recognized_amount', ''),
+                        equipment_name=row.get('equipment_name', ''),  # 新增
+                        amount=row.get('amount', ''),  # 新增
                         processing_time=float(row.get('processing_time', 0)),
                         status=row.get('status', ''),
                         error_message=row.get('error_message') if row.get('error_message') else None,
@@ -318,17 +317,11 @@ class CSVRecordManager:
             表头字段列表
         """
         return [
-            'timestamp',
             'original_filename',
             'new_filename',
-            'recognized_amount',
-            'processing_time',
-            'status',
-            'error_message',
-            'recognized_text',
-            'confidence',
-            'original_path',
-            'new_path'
+            'equipment_name',  # 新增
+            'amount',  # 新增
+            'confidence'
         ]
     
     def backup_csv_file(self, csv_path: str) -> bool:
@@ -370,11 +363,48 @@ class CSVRecordManager:
         self._records_cache.clear()
         self.logger.info(f"已清空缓存，共 {count} 条记录")
         return count
+    
+    def clear_csv_file(self, csv_path: str) -> bool:
+        """清理CSV文件内容（保留表头）
+        
+        Args:
+            csv_path: CSV文件路径
+            
+        Returns:
+            是否清理成功
+        """
+        try:
+            # 确保目录存在
+            csv_dir = os.path.dirname(csv_path)
+            if csv_dir:  # 只有当目录路径不为空时才创建
+                os.makedirs(csv_dir, exist_ok=True)
+            
+            # 获取CSV配置
+            csv_config = self.config_manager.get_csv_output_config()
+            encoding = csv_config.get("encoding", "utf-8-sig")  # 使用utf-8-sig以支持Excel
+            
+            # 获取表头
+            headers = self._get_csv_headers()
+            
+            # 重新创建文件并只写入表头
+            with open(csv_path, 'w', newline='', encoding=encoding) as csvfile:
+                writer = csv.DictWriter(csvfile, fieldnames=headers)
+                writer.writeheader()
+            
+            self.logger.info(f"CSV文件内容已清理，保留表头: {csv_path}")
+            return True
+            
+        except Exception as e:
+            self.logger.error(f"清理CSV文件失败: {csv_path}, 错误: {e}")
+            return False
 
 
 if __name__ == "__main__":
     # 测试CSV记录管理器
-    from .ocr_config_manager import get_ocr_config_manager
+    try:
+        from .ocr_config_manager import get_ocr_config_manager
+    except ImportError:
+        from ocr_config_manager import get_ocr_config_manager
     
     # 初始化配置管理器
     config_manager = get_ocr_config_manager()

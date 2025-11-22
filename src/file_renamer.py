@@ -12,7 +12,10 @@ import logging
 from typing import Dict, Any, List, Optional, Tuple
 from dataclasses import dataclass
 
-from .ocr_config_manager import OCRConfigManager
+try:
+    from .ocr_config_manager import OCRConfigManager
+except ImportError:
+    from ocr_config_manager import OCRConfigManager
 
 
 @dataclass
@@ -326,7 +329,10 @@ class FileRenamer:
 
 if __name__ == "__main__":
     # 测试文件重命名器
-    from .ocr_config_manager import get_ocr_config_manager
+    try:
+        from .ocr_config_manager import get_ocr_config_manager
+    except ImportError:
+        from ocr_config_manager import get_ocr_config_manager
     
     # 初始化配置管理器
     config_manager = get_ocr_config_manager()

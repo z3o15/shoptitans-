@@ -20,7 +20,10 @@ class OCRConfigManager:
             config_manager: 现有的配置管理器实例，如果为None则创建新实例
         """
         if config_manager is None:
-            from .config_manager import get_config_manager
+            try:
+                from .config_manager import get_config_manager
+            except ImportError:
+                from config_manager import get_config_manager
             self.base_config_manager = get_config_manager()
         else:
             self.base_config_manager = config_manager
@@ -55,6 +58,13 @@ class OCRConfigManager:
                 "grayscale": True,
                 "threshold": True,
                 "denoise": True
+            },
+            "recognition_region": {
+                "enabled": True,
+                "left": 27,
+                "right": 145,
+                "top": 122,
+                "bottom": 152
             },
             "input_folder": "images/cropped_equipment_marker",
             "output_csv": "ocr_rename_records.csv",
@@ -319,6 +329,15 @@ class OCRConfigManager:
         print(f"  灰度化: {'启用' if preprocessing.get('grayscale', True) else '禁用'}")
         print(f"  二值化: {'启用' if preprocessing.get('threshold', True) else '禁用'}")
         print(f"  降噪: {'启用' if preprocessing.get('denoise', True) else '禁用'}")
+        
+        region_config = ocr_config.get('recognition_region', {})
+        print(f"\n识别区域:")
+        print(f"  区域识别: {'启用' if region_config.get('enabled', False) else '禁用'}")
+        if region_config.get('enabled', False):
+            print(f"  左侧: {region_config.get('left', 0)}")
+            print(f"  右侧: {region_config.get('right', 0)}")
+            print(f"  上侧: {region_config.get('top', 0)}")
+            print(f"  下侧: {region_config.get('bottom', 0)}")
         
         print(f"\n文件处理:")
         print(f"  输入文件夹: {ocr_config.get('input_folder', 'images/cropped_equipment_marker')}")
