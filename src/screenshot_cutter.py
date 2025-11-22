@@ -72,7 +72,7 @@ class ScreenshotCutter:
     @staticmethod
     def cut_fixed(screenshot_path, output_folder, grid=(5, 2), item_width=210, item_height=160,
                  margin_left=10, margin_top=275, h_spacing=15, v_spacing=20, draw_circle=True,
-                 save_original=True):
+                 save_original=True, marker_output_folder=None):
         """按固定坐标切割游戏截图中的装备
         
         适用于装备位置固定的截图，如按网格排列的背包界面
@@ -89,11 +89,16 @@ class ScreenshotCutter:
             v_spacing: 装备纵向间隔
             draw_circle: 是否在切割后的图片上绘制圆形，默认为True
             save_original: 是否保存原图，默认为True
+            marker_output_folder: 带圆形标记副本的保存目录，如果为None则不保存副本
         """
         try:
             with Image.open(screenshot_path) as img:
                 # 创建输出目录
                 os.makedirs(output_folder, exist_ok=True)
+                
+                # 创建标记副本目录（如果指定）
+                if marker_output_folder:
+                    os.makedirs(marker_output_folder, exist_ok=True)
                 
                 cols, rows = grid
                 total_items = cols * rows
@@ -122,22 +127,36 @@ class ScreenshotCutter:
                             # 在切割后的图片上绘制圆形并获取圆形区域
                             img_with_circle, circle_region = ScreenshotCutter.draw_circle_on_image(crop_img, 116)
                             
-                            # 根据参数决定保存内容
+                            # 如果指定了标记副本目录，先保存第一次处理的图片（带圆形标记）
+                            if marker_output_folder:
+                                marker_path = os.path.join(marker_output_folder, f"item_{row}_{col}.png")
+                                img_with_circle.save(marker_path)
+                                print(f"✓ 已保存装备 {row+1}-{col+1}（第一次处理，带圆形标记）")
+                            
+                            # 根据参数决定保存内容到主目录
                             if save_original:
-                                # 保存带圆形标记的原图
+                                # 保存带圆形标记的原图到主目录（第二次处理）
                                 crop_path = os.path.join(output_folder, f"item_{row}_{col}.png")
                                 img_with_circle.save(crop_path)
-                                print(f"✓ 已保存装备 {row+1}-{col+1}（带圆形标记）")
+                                print(f"✓ 已保存装备 {row+1}-{col+1}（第二次处理，带圆形标记）")
                             
                             # 保存圆形区域
                             circle_path = os.path.join(output_folder, f"item_{row}_{col}_circle.png")
                             circle_region.save(circle_path)
                             print(f"✓ 已保存装备 {row+1}-{col+1} 的圆形区域")
+                            
+                            # 注意：marker目录不保存圆形区域文件，只保存完整的带圆形标记的图片
                         else:
                             # 只保存原图
                             crop_path = os.path.join(output_folder, f"item_{row}_{col}.png")
                             crop_img.save(crop_path)
                             print(f"✓ 已保存装备 {row+1}-{col+1}")
+                            
+                            # 如果指定了标记副本目录，也保存一份到该目录
+                            if marker_output_folder:
+                                marker_path = os.path.join(marker_output_folder, f"item_{row}_{col}.png")
+                                crop_img.save(marker_path)
+                                print(f"✓ 已保存装备 {row+1}-{col+1}（副本）")
                         
                         count += 1
                 

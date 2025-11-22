@@ -175,35 +175,66 @@ def step2_cut_screenshots(auto_mode=True, auto_clear_old=True, auto_select_all=T
     output_dir = "images/cropped_equipment"
     os.makedirs(output_dir, exist_ok=True)
     
-    # 检查是否需要清理旧文件
-    existing_files = []
-    for item in os.listdir(output_dir):
-        item_path = os.path.join(output_dir, item)
-        if os.path.isfile(item_path) and item.lower().endswith(('.png', '.jpg', '.jpeg', '.webp')):
-            existing_files.append(item)
-        elif os.path.isdir(item_path):
-            existing_files.append(item)
+    # 检查是否需要清理旧文件（主目录和marker目录）
+    marker_output_dir = "images/cropped_equipment_marker"
+    existing_files_main = []
+    existing_files_marker = []
     
-    if existing_files:
-        print(f"\n检测到 {len(existing_files)} 个已存在的文件/目录:")
-        for i, item in enumerate(sorted(existing_files)[:5], 1):
+    # 检查主目录
+    if os.path.exists(output_dir):
+        for item in os.listdir(output_dir):
+            item_path = os.path.join(output_dir, item)
+            if os.path.isfile(item_path) and item.lower().endswith(('.png', '.jpg', '.jpeg', '.webp')):
+                existing_files_main.append(item)
+            elif os.path.isdir(item_path):
+                existing_files_main.append(item)
+    
+    # 检查marker目录
+    if os.path.exists(marker_output_dir):
+        for item in os.listdir(marker_output_dir):
+            item_path = os.path.join(marker_output_dir, item)
+            if os.path.isfile(item_path) and item.lower().endswith(('.png', '.jpg', '.jpeg', '.webp')):
+                existing_files_marker.append(item)
+            elif os.path.isdir(item_path):
+                existing_files_marker.append(item)
+    
+    all_existing_files = existing_files_main + existing_files_marker
+    
+    if all_existing_files:
+        print(f"\n检测到 {len(all_existing_files)} 个已存在的文件/目录:")
+        for i, item in enumerate(sorted(all_existing_files)[:5], 1):
             print(f"  {i}. {item}")
-        if len(existing_files) > 5:
-            print(f"  ... 还有 {len(existing_files) - 5} 个文件/目录")
+        if len(all_existing_files) > 5:
+            print(f"  ... 还有 {len(all_existing_files) - 5} 个文件/目录")
         
         if auto_mode:
             if auto_clear_old:
                 print("\n自动模式：正在清理旧文件...")
                 try:
-                    for item in os.listdir(output_dir):
-                        item_path = os.path.join(output_dir, item)
-                        try:
-                            if os.path.isfile(item_path):
-                                os.unlink(item_path)
-                            elif os.path.isdir(item_path):
-                                shutil.rmtree(item_path)
-                        except Exception as e:
-                            print(f"删除 {item_path} 时出错: {e}")
+                    # 清理主目录
+                    if os.path.exists(output_dir):
+                        for item in os.listdir(output_dir):
+                            item_path = os.path.join(output_dir, item)
+                            try:
+                                if os.path.isfile(item_path):
+                                    os.unlink(item_path)
+                                elif os.path.isdir(item_path):
+                                    shutil.rmtree(item_path)
+                            except Exception as e:
+                                print(f"删除主目录 {item_path} 时出错: {e}")
+                    
+                    # 清理marker目录
+                    if os.path.exists(marker_output_dir):
+                        for item in os.listdir(marker_output_dir):
+                            item_path = os.path.join(marker_output_dir, item)
+                            try:
+                                if os.path.isfile(item_path):
+                                    os.unlink(item_path)
+                                elif os.path.isdir(item_path):
+                                    shutil.rmtree(item_path)
+                            except Exception as e:
+                                print(f"删除marker目录 {item_path} 时出错: {e}")
+                    
                     print("✓ 已清理所有旧文件和目录")
                 except Exception as e:
                     print(f"清理过程中出错: {e}")
@@ -220,15 +251,30 @@ def step2_cut_screenshots(auto_mode=True, auto_clear_old=True, auto_select_all=T
             if choice == '1':
                 print("\n正在清理旧文件...")
                 try:
-                    for item in os.listdir(output_dir):
-                        item_path = os.path.join(output_dir, item)
-                        try:
-                            if os.path.isfile(item_path):
-                                os.unlink(item_path)
-                            elif os.path.isdir(item_path):
-                                shutil.rmtree(item_path)
-                        except Exception as e:
-                            print(f"删除 {item_path} 时出错: {e}")
+                    # 清理主目录
+                    if os.path.exists(output_dir):
+                        for item in os.listdir(output_dir):
+                            item_path = os.path.join(output_dir, item)
+                            try:
+                                if os.path.isfile(item_path):
+                                    os.unlink(item_path)
+                                elif os.path.isdir(item_path):
+                                    shutil.rmtree(item_path)
+                            except Exception as e:
+                                print(f"删除主目录 {item_path} 时出错: {e}")
+                    
+                    # 清理marker目录
+                    if os.path.exists(marker_output_dir):
+                        for item in os.listdir(marker_output_dir):
+                            item_path = os.path.join(marker_output_dir, item)
+                            try:
+                                if os.path.isfile(item_path):
+                                    os.unlink(item_path)
+                                elif os.path.isdir(item_path):
+                                    shutil.rmtree(item_path)
+                            except Exception as e:
+                                print(f"删除marker目录 {item_path} 时出错: {e}")
+                    
                     print("✓ 已清理所有旧文件和目录")
                 except Exception as e:
                     print(f"清理过程中出错: {e}")
@@ -304,6 +350,11 @@ def step2_cut_screenshots(auto_mode=True, auto_clear_old=True, auto_select_all=T
             output_folder = os.path.join(output_dir, time_folder)
             os.makedirs(output_folder, exist_ok=True)
             
+            # 创建带圆形标记副本的目录
+            marker_output_dir = "images/cropped_equipment_marker"
+            marker_output_folder = os.path.join(marker_output_dir, time_folder)
+            os.makedirs(marker_output_folder, exist_ok=True)
+            
             # 使用从配置文件读取的切割参数
             params = cutting_params
             
@@ -327,6 +378,7 @@ def step2_cut_screenshots(auto_mode=True, auto_clear_old=True, auto_select_all=T
                 output_folder=output_folder,
                 draw_circle=True,  # 启用圆形绘制功能，在切割后的装备图片上添加红色圆形标记
                 save_original=current_save_original,  # 根据用户选择决定是否保存原图
+                marker_output_folder=marker_output_folder,  # 保存带圆形标记的副本到marker目录
                 **params
             )
             
@@ -348,7 +400,22 @@ def step2_cut_screenshots(auto_mode=True, auto_clear_old=True, auto_select_all=T
                     if old_path != new_path:  # 避免重命名到同一个文件
                         os.rename(old_path, new_path)
                 
-                print(f"✓ 已重命名文件为顺序编号格式")
+                print(f"✓ 已重命名主目录文件为顺序编号格式")
+                
+                # 同时重命名marker目录中的文件
+                marker_files = os.listdir(marker_output_folder)
+                marker_image_files = [f for f in marker_files if f.lower().endswith(('.png', '.jpg', '.jpeg', '.webp')) and not f.endswith('_circle.png')]
+                marker_image_files.sort()  # 确保按顺序处理
+                
+                for i, filename in enumerate(marker_image_files, 1):
+                    old_path = os.path.join(marker_output_folder, filename)
+                    new_name = f"{i:02d}.png"  # 格式化为两位数，如01.png, 02.png
+                    new_path = os.path.join(marker_output_folder, new_name)
+                    
+                    if old_path != new_path:  # 避免重命名到同一个文件
+                        os.rename(old_path, new_path)
+                
+                print(f"✓ 已重命名marker目录文件为顺序编号格式")
             except Exception as e:
                 print(f"⚠️ 重命名文件时出错: {e}")
             
@@ -493,27 +560,32 @@ def step3_match_equipment(auto_mode=True, auto_select_base=True, auto_threshold=
                     # matcher.save_results(result_file)
                     # print(f"\n✓ 详细结果已保存到: {result_file}")
                     
-                    # 重命名匹配的图片为基准装备名称
-                    print(f"\n正在重命名匹配的图片为基准装备名称: {base_name}")
+                    # 为匹配的图片添加装备名称后缀
+                    print(f"\n正在为匹配的图片添加装备名称后缀: {base_name}")
                     
                     for i, (filename, similarity) in enumerate(matched_items):
-                        # 获取原始文件路径
+                        # 获取原始文件路径和文件名（不含扩展名）
                         if os.path.sep in filename:  # 如果是子目录中的文件
                             subdir = os.path.dirname(filename)
                             old_path = os.path.join(cropped_equipment_dir, subdir, os.path.basename(filename))
-                            # 为每个匹配的文件添加序号，避免重名
-                            new_name = f"{base_name}_{i+1}.png" if len(matched_items) > 1 else f"{base_name}.png"
+                            # 提取原文件名（不含扩展名）
+                            original_name = os.path.splitext(os.path.basename(filename))[0]
+                            # 添加装备名称后缀
+                            new_name = f"{original_name}_{base_name}.png"
                             new_path = os.path.join(cropped_equipment_dir, subdir, new_name)
                         else:
                             old_path = os.path.join(cropped_equipment_dir, filename)
-                            # 为每个匹配的文件添加序号，避免重名
-                            new_name = f"{base_name}_{i+1}.png" if len(matched_items) > 1 else f"{base_name}.png"
+                            # 提取原文件名（不含扩展名）
+                            original_name = os.path.splitext(filename)[0]
+                            # 添加装备名称后缀
+                            new_name = f"{original_name}_{base_name}.png"
                             new_path = os.path.join(cropped_equipment_dir, new_name)
                         
                         try:
                             # 重命名文件
                             os.rename(old_path, new_path)
                             print(f"✓ 已重命名: {filename} -> {new_name}")
+                                    
                         except Exception as e:
                             print(f"✗ 重命名失败 {filename}: {e}")
                     
@@ -622,29 +694,62 @@ def step3_match_equipment(auto_mode=True, auto_select_base=True, auto_threshold=
             # matcher.save_results(result_file)
             # print(f"\n✓ 详细结果已保存到: {result_file}")
             
-            # 重命名匹配的图片为基准装备名称
+            # 为匹配的图片添加装备名称后缀
             base_name = os.path.splitext(base_image)[0]  # 获取基准装备名称（不含扩展名）
             
-            print(f"\n正在重命名匹配的图片为基准装备名称: {base_name}")
+            print(f"\n正在为匹配的图片添加装备名称后缀: {base_name}")
             
             for i, (filename, similarity) in enumerate(matched_items):
-                # 获取原始文件路径
+                # 获取原始文件路径和文件名（不含扩展名）
                 if os.path.sep in filename:  # 如果是子目录中的文件
                     subdir = os.path.dirname(filename)
                     old_path = os.path.join(cropped_equipment_dir, subdir, os.path.basename(filename))
-                    # 为每个匹配的文件添加序号，避免重名
-                    new_name = f"{base_name}_{i+1}.png" if len(matched_items) > 1 else f"{base_name}.png"
+                    # 提取原文件名（不含扩展名）
+                    original_name = os.path.splitext(os.path.basename(filename))[0]
+                    # 添加装备名称后缀
+                    new_name = f"{original_name}_{base_name}.png"
                     new_path = os.path.join(cropped_equipment_dir, subdir, new_name)
                 else:
                     old_path = os.path.join(cropped_equipment_dir, filename)
-                    # 为每个匹配的文件添加序号，避免重名
-                    new_name = f"{base_name}_{i+1}.png" if len(matched_items) > 1 else f"{base_name}.png"
+                    # 提取原文件名（不含扩展名）
+                    original_name = os.path.splitext(filename)[0]
+                    # 添加装备名称后缀
+                    new_name = f"{original_name}_{base_name}.png"
                     new_path = os.path.join(cropped_equipment_dir, new_name)
                 
                 try:
                     # 重命名文件
                     os.rename(old_path, new_path)
                     print(f"✓ 已重命名: {filename} -> {new_name}")
+                    
+                    # 同步重命名marker目录中的文件（添加金额后缀）
+                    marker_dir = "images/cropped_equipment_marker"
+                    # 假设金额为1000（实际应用中可以从配置或其他地方获取）
+                    amount = "1000"
+                    
+                    if os.path.sep in filename:  # 如果是子目录中的文件
+                        marker_old_path = os.path.join(marker_dir, subdir, os.path.basename(filename))
+                        # 提取原文件名（不含扩展名）
+                        original_name = os.path.splitext(os.path.basename(filename))[0]
+                        # 添加金额后缀
+                        marker_new_name = f"{original_name}_{amount}.png"
+                        marker_new_path = os.path.join(marker_dir, subdir, marker_new_name)
+                    else:
+                        marker_old_path = os.path.join(marker_dir, filename)
+                        # 提取原文件名（不含扩展名）
+                        original_name = os.path.splitext(filename)[0]
+                        # 添加金额后缀
+                        marker_new_name = f"{original_name}_{amount}.png"
+                        marker_new_path = os.path.join(marker_dir, marker_new_name)
+                    
+                    # 检查marker目录中的文件是否存在，如果存在则重命名
+                    if os.path.exists(marker_old_path):
+                        try:
+                            os.rename(marker_old_path, marker_new_path)
+                            print(f"✓ 已重命名marker文件: {filename} -> {marker_new_name}")
+                        except Exception as e:
+                            print(f"✗ 重命名marker文件失败 {filename}: {e}")
+                            
                 except Exception as e:
                     print(f"✗ 重命名失败 {filename}: {e}")
             
@@ -1121,7 +1226,8 @@ def clear_previous_results():
     # 确认操作
     print("确认要清理以下内容吗？")
     print("1. 切割装备目录 (images/cropped_equipment)")
-    print("2. 旧的日志文件 (recognition_logs)")
+    print("2. 带圆形标记副本目录 (images/cropped_equipment_marker)")
+    print("3. 旧的日志文件 (recognition_logs)")
     print("注意：最新的日志文件将被保留")
     
     confirm = input("\n确认清理？(y/n): ").strip().lower()
