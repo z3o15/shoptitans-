@@ -1,0 +1,54 @@
+{
+  "recognition": {
+    "default_threshold": 80,
+    "enable_masking": true,
+    "enable_histogram": true,
+    "algorithm_description": "高级彩色模板匹配算法，使用掩码直方图和颜色信息提供精确的装备识别"
+  },
+  "cutting": {
+    "default_method": "fixed",
+    "fixed_grid": [
+      6,
+      2
+    ],
+    "fixed_item_width": 100,
+    "fixed_item_height": 120,
+    "fixed_margin_left": 20,
+    "fixed_margin_top": 350,
+    "contour_min_area": 800,
+    "contour_max_area": 50000
+  },
+  "paths": {
+    "images_dir": "images",
+    "base_equipment_dir": "base_equipment",
+    "game_screenshots_dir": "game_screenshots",
+    "cropped_equipment_dir": "cropped_equipment",
+    "logs_dir": "recognition_logs"
+  },
+  "logging": {
+    "enable_logging": true,
+    "log_level": "INFO",
+    "include_algorithm_info": true,
+    "include_performance_metrics": true
+  },
+  "performance": {
+    "enable_caching": true,
+    "cache_size": 100,
+    "parallel_processing": false,
+    "max_workers": 4
+  },
+  "ui": {
+    "show_algorithm_selection": true,
+    "show_performance_info": true,
+    "show_detailed_results": true
+  },
+  "annotation": {
+    "enable_annotation": true,
+    "circle_color": "red",
+    "circle_width": 3,
+    "font_size": 12,
+    "show_similarity_text": true,
+    "auto_generate_annotation": false,
+    "annotation_output_dir": "annotated_screenshots"
+  }
+}
