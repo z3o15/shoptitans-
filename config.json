@@ -1,6 +1,12 @@
 {
   "recognition": {
     "default_threshold": 80,
+    "algorithm_type": "feature",
+    "feature_type": "ORB",
+    "min_match_count": 8,
+    "match_ratio_threshold": 0.75,
+    "min_homography_inliers": 6,
+    "use_advanced_algorithm": true,
     "enable_masking": true,
     "enable_histogram": true,
     "algorithm_description": "高级彩色模板匹配算法，使用掩码直方图和颜色信息提供精确的装备识别"
@@ -52,5 +58,49 @@
     "show_similarity_text": true,
     "auto_generate_annotation": false,
     "annotation_output_dir": "annotated_screenshots"
+  },
+  "ocr": {
+    "enabled": true,
+    "engine": "easyocr",
+    "language": [
+      "en"
+    ],
+    "price_pattern": "\\d{1,3}(?:,\\d{3})*",
+    "confidence_threshold": 0.7,
+    "preprocessing": {
+      "grayscale": false,
+      "threshold": false,
+      "denoise": false
+    },
+    "input_folder": "images/cropped_equipment_marker/20251122_183651",
+    "output_csv": "final_ocr_output.csv",
+    "rename_separator": "_",
+    "supported_formats": [
+      ".png",
+      ".jpg",
+      ".jpeg",
+      ".bmp",
+      ".tiff"
+    ],
+    "fallback_preprocessing": [
+      {
+        "name": "原始图像",
+        "grayscale": false,
+        "threshold": false,
+        "denoise": false
+      },
+      {
+        "name": "仅灰度化",
+        "grayscale": true,
+        "threshold": false,
+        "denoise": false
+      },
+      {
+        "name": "灰度化+降噪",
+        "grayscale": true,
+        "threshold": false,
+        "denoise": true
+      }
+    ]
   }
 }

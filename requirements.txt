@@ -4,6 +4,9 @@ opencv-python>=4.8.0
 Pillow>=9.0.0
 numpy>=1.21.0
 
+# OCR识别引擎
+easyocr>=1.6.0
+
 # 可选依赖（用于性能优化和扩展功能）
 # opencv-contrib-python>=4.8.0  # 包含额外的OpenCV模块
 # scikit-image>=0.19.0         # 高级图像处理功能

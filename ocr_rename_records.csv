@@ -1,0 +1,11 @@
+timestamp,original_filename,new_filename,recognized_amount,processing_time,status,error_message,recognized_text,confidence,original_path,new_path
+2025-11-22 19:42:25,01_315_315.png,01_315_315_315.png,315,0.3637104034423828,成功,,"315,000",0.8557557150862806,images/cropped_equipment_marker/20251122_183651\01_315_315.png,images/cropped_equipment_marker/20251122_183651\01_315_315_315.png
+2025-11-22 19:42:25,02.png,02.png,,0.21540427207946777,失败,未识别到任何文本,,,images/cropped_equipment_marker/20251122_183651\02.png,images/cropped_equipment_marker/20251122_183651\02.png
+2025-11-22 19:42:25,03.png,03.png,,0.28275370597839355,失败,未识别到任何文本,,,images/cropped_equipment_marker/20251122_183651\03.png,images/cropped_equipment_marker/20251122_183651\03.png
+2025-11-22 19:42:25,04.png,04.png,,0.29828476905822754,失败,未识别到任何文本,,,images/cropped_equipment_marker/20251122_183651\04.png,images/cropped_equipment_marker/20251122_183651\04.png
+2025-11-22 19:42:25,05.png,05.png,,0.20194721221923828,失败,未识别到任何文本,,,images/cropped_equipment_marker/20251122_183651\05.png,images/cropped_equipment_marker/20251122_183651\05.png
+2025-11-22 19:42:25,06.png,06.png,,0.20078516006469727,失败,未识别到任何文本,,,images/cropped_equipment_marker/20251122_183651\06.png,images/cropped_equipment_marker/20251122_183651\06.png
+2025-11-22 19:42:25,07.png,07.png,,0.32862091064453125,失败,识别置信度过低: 0.69,12 J0_,0.6941699369720516,images/cropped_equipment_marker/20251122_183651\07.png,images/cropped_equipment_marker/20251122_183651\07.png
+2025-11-22 19:42:25,08_10_10.png,08_10_10_10.png,10,0.5811798572540283,成功,,10,0.9955959713249826,images/cropped_equipment_marker/20251122_183651\08_10_10.png,images/cropped_equipment_marker/20251122_183651\08_10_10_10.png
+2025-11-22 19:42:25,09.png,09.png,,0.2651102542877197,失败,识别置信度过低: 0.72,'49,0.7228798966513772,images/cropped_equipment_marker/20251122_183651\09.png,images/cropped_equipment_marker/20251122_183651\09.png
+2025-11-22 19:42:25,10.png,10.png,,0.3884270191192627,失败,未识别到任何文本,,,images/cropped_equipment_marker/20251122_183651\10.png,images/cropped_equipment_marker/20251122_183651\10.png
