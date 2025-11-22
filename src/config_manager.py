@@ -208,6 +208,14 @@ class ConfigManager:
         """
         return self.config.get("annotation", {})
     
+    def get_console_output_config(self) -> Dict[str, Any]:
+        """获取控制台输出配置
+        
+        Returns:
+            控制台输出配置字典
+        """
+        return self.config.get("console_output", {})
+    
     def update_recognition_config(self, **kwargs) -> None:
         """更新识别配置
         
@@ -228,6 +236,17 @@ class ConfigManager:
         annotation_config = self.config.get("annotation", {})
         annotation_config.update(kwargs)
         self.config["annotation"] = annotation_config
+        self._save_config(self.config)
+    
+    def update_console_output_config(self, **kwargs) -> None:
+        """更新控制台输出配置
+        
+        Args:
+            **kwargs: 要更新的配置项
+        """
+        console_config = self.config.get("console_output", {})
+        console_config.update(kwargs)
+        self.config["console_output"] = console_config
         self._save_config(self.config)
     
     def get_algorithm_mode(self) -> bool:

@@ -11,9 +11,27 @@ import subprocess
 from datetime import datetime
 import shutil
 
+# 导入节点日志管理器
+try:
+    from src.node_logger import get_logger, init_logger_from_config
+    from src.config_manager import get_config_manager
+    NODE_LOGGER_AVAILABLE = True
+except ImportError:
+    try:
+        from node_logger import get_logger, init_logger_from_config
+        from config_manager import get_config_manager
+        NODE_LOGGER_AVAILABLE = True
+    except ImportError:
+        NODE_LOGGER_AVAILABLE = False
+        print("⚠️ 节点日志管理器不可用，使用默认输出")
+
 def check_dependencies():
     """检查依赖是否已安装"""
-    print("检查系统依赖...")
+    if NODE_LOGGER_AVAILABLE:
+        logger = get_logger()
+        logger.start_node("系统依赖检查", "🔍")
+    else:
+        print("检查系统依赖...")
     
     required_packages = ['cv2', 'PIL', 'numpy']
     missing_packages = []
@@ -26,24 +44,46 @@ def check_dependencies():
                 from PIL import Image
             elif package == 'numpy':
                 import numpy
-            print(f"✓ {package}")
+            if NODE_LOGGER_AVAILABLE:
+                logger.log_success(f"{package}")
+            else:
+                print(f"✓ {package}")
         except ImportError:
             missing_packages.append(package)
-            print(f"✗ {package}")
+            if NODE_LOGGER_AVAILABLE:
+                logger.log_error(f"{package}")
+            else:
+                print(f"✗ {package}")
     
     if missing_packages:
-        print(f"\n缺少依赖包: {', '.join(missing_packages)}")
-        print("正在安装依赖...")
+        if NODE_LOGGER_AVAILABLE:
+            logger.log_info(f"缺少依赖包: {', '.join(missing_packages)}")
+            logger.log_info("正在安装依赖...")
+        else:
+            print(f"\n缺少依赖包: {', '.join(missing_packages)}")
+            print("正在安装依赖...")
         
         try:
             subprocess.check_call([sys.executable, "-m", "pip", "install", "-r", "requirements.txt"])
-            print("✓ 依赖安装完成")
+            if NODE_LOGGER_AVAILABLE:
+                logger.log_success("依赖安装完成")
+                logger.end_node("✅")
+            else:
+                print("✓ 依赖安装完成")
             return True
         except subprocess.CalledProcessError:
-            print("✗ 依赖安装失败，请手动运行: pip install -r requirements.txt")
+            if NODE_LOGGER_AVAILABLE:
+                logger.log_error("依赖安装失败，请手动运行: pip install -r requirements.txt")
+                logger.end_node("❌")
+            else:
+                print("✗ 依赖安装失败，请手动运行: pip install -r requirements.txt")
             return False
     else:
-        print("✓ 所有依赖已安装")
+        if NODE_LOGGER_AVAILABLE:
+            logger.log_success("所有依赖已安装")
+            logger.end_node("✅")
+        else:
+            print("✓ 所有依赖已安装")
         return True
 
 def check_data_files():
@@ -113,19 +153,29 @@ def check_data_files():
 
 def step1_get_screenshots(auto_mode=True):
     """步骤1：获取原始图片"""
-    print("\n" + "=" * 60)
-    print("步骤 1/3：获取原始图片")
-    print("=" * 60)
-    print("此步骤用于检查和选择游戏截图")
-    print("-" * 60)
+    if NODE_LOGGER_AVAILABLE:
+        logger = get_logger()
+        logger.start_node("步骤1：获取原始图片", "🖼️")
+    else:
+        print("\n" + "=" * 60)
+        print("步骤 1/3：获取原始图片")
+        print("=" * 60)
+        print("此步骤用于检查和选择游戏截图")
+        print("-" * 60)
     
     # 检查游戏截图目录
     game_screenshots_dir = "images/game_screenshots"
     
     if not os.path.exists(game_screenshots_dir):
-        print(f"❌ 游戏截图目录不存在: {game_screenshots_dir}")
-        if not auto_mode:
-            print("请将游戏截图放入该目录后重试")
+        if NODE_LOGGER_AVAILABLE:
+            logger.log_error(f"游戏截图目录不存在: {game_screenshots_dir}")
+            if not auto_mode:
+                logger.log_info("请将游戏截图放入该目录后重试")
+            logger.end_node("❌")
+        else:
+            print(f"❌ 游戏截图目录不存在: {game_screenshots_dir}")
+            if not auto_mode:
+                print("请将游戏截图放入该目录后重试")
         return False
     
     # 列出所有截图
@@ -135,26 +185,46 @@ def step1_get_screenshots(auto_mode=True):
             screenshot_files.append(filename)
     
     if not screenshot_files:
-        print(f"❌ 游戏截图目录为空: {game_screenshots_dir}")
-        if not auto_mode:
-            print("请将游戏截图放入该目录后重试")
+        if NODE_LOGGER_AVAILABLE:
+            logger.log_error(f"游戏截图目录为空: {game_screenshots_dir}")
+            if not auto_mode:
+                logger.log_info("请将游戏截图放入该目录后重试")
+            logger.end_node("❌")
+        else:
+            print(f"❌ 游戏截图目录为空: {game_screenshots_dir}")
+            if not auto_mode:
+                print("请将游戏截图放入该目录后重试")
         return False
     
-    print(f"✓ 找到 {len(screenshot_files)} 个游戏截图:")
-    for i, filename in enumerate(sorted(screenshot_files), 1):
-        print(f"  {i}. {filename}")
+    if NODE_LOGGER_AVAILABLE:
+        logger.log_info(f"找到 {len(screenshot_files)} 个游戏截图")
+        # 只在调试模式下显示详细列表
+        if logger.show_debug:
+            for i, filename in enumerate(sorted(screenshot_files), 1):
+                logger.log_debug(f"{i}. {filename}")
+        logger.log_success("步骤1完成")
+        logger.end_node("✅")
+    else:
+        print(f"✓ 找到 {len(screenshot_files)} 个游戏截图:")
+        for i, filename in enumerate(sorted(screenshot_files), 1):
+            print(f"  {i}. {filename}")
+        
+        print(f"\n✅ 步骤1完成：已找到 {len(screenshot_files)} 个游戏截图")
+        print("下一步：将这些截图分割成单个装备图片")
     
-    print(f"\n✅ 步骤1完成：已找到 {len(screenshot_files)} 个游戏截图")
-    print("下一步：将这些截图分割成单个装备图片")
     return True
 
 def step2_cut_screenshots(auto_mode=True, auto_clear_old=True, auto_select_all=True, save_original=True):
     """步骤2：分割原始图片"""
-    print("\n" + "=" * 60)
-    print("步骤 2/3：分割原始图片")
-    print("=" * 60)
-    print("此步骤将游戏截图分割成单个装备图片")
-    print("-" * 60)
+    if NODE_LOGGER_AVAILABLE:
+        logger = get_logger()
+        logger.start_node("步骤2：分割原始图片", "✂️")
+    else:
+        print("\n" + "=" * 60)
+        print("步骤 2/3：分割原始图片")
+        print("=" * 60)
+        print("此步骤将游戏截图分割成单个装备图片")
+        print("-" * 60)
     
     # 检查依赖
     if not check_dependencies():
@@ -430,8 +500,13 @@ def step2_cut_screenshots(auto_mode=True, auto_clear_old=True, auto_select_all=T
             print(f"✓ 从 {screenshot} 切割出 {cropped_items} 个装备到 {time_folder}/")
             total_cropped += cropped_items
         
-        print(f"\n✅ 步骤2完成：共切割出 {total_cropped} 个装备图片")
-        print("下一步：使用基准装备对比这些切割后的图片")
+        if NODE_LOGGER_AVAILABLE:
+            logger.log_info(f"共切割出 {total_cropped} 个装备图片")
+            logger.log_success("步骤2完成")
+            logger.end_node("✅")
+        else:
+            print(f"\n✅ 步骤2完成：共切割出 {total_cropped} 个装备图片")
+            print("下一步：使用基准装备对比这些切割后的图片")
         return True
         
     except Exception as e:
@@ -440,11 +515,15 @@ def step2_cut_screenshots(auto_mode=True, auto_clear_old=True, auto_select_all=T
 
 def step3_match_equipment(auto_mode=True, auto_select_base=True, auto_threshold=None, auto_match_all=False):
     """步骤3：装备识别匹配"""
-    print("\n" + "=" * 60)
-    print("步骤 3/3：装备识别匹配")
-    print("=" * 60)
-    print("此步骤使用基准装备对比切割后的图片")
-    print("-" * 60)
+    if NODE_LOGGER_AVAILABLE:
+        logger = get_logger()
+        logger.start_node("步骤3：装备识别匹配", "🔍")
+    else:
+        print("\n" + "=" * 60)
+        print("步骤 3/3：装备识别匹配")
+        print("=" * 60)
+        print("此步骤使用基准装备对比切割后的图片")
+        print("-" * 60)
     
     # 检查依赖
     if not check_dependencies():
@@ -594,7 +673,12 @@ def step3_match_equipment(auto_mode=True, auto_select_base=True, auto_threshold=
                 else:
                     print(f"\n❌ 基准装备 {base_image} 未找到匹配项")
             
-            print(f"\n✅ 步骤3完成：在 {len(cropped_files)} 个装备中总共找到 {len(all_matched_items)} 个匹配项")
+            if NODE_LOGGER_AVAILABLE:
+                logger.log_info(f"在 {len(cropped_files)} 个装备中总共找到 {len(all_matched_items)} 个匹配项")
+                logger.log_success("步骤3完成")
+                logger.end_node("✅")
+            else:
+                print(f"\n✅ 步骤3完成：在 {len(cropped_files)} 个装备中总共找到 {len(all_matched_items)} 个匹配项")
             return True
         elif auto_select_base:
             print("\n自动模式：选择第一个基准装备")
@@ -681,7 +765,12 @@ def step3_match_equipment(auto_mode=True, auto_select_base=True, auto_threshold=
             threshold=threshold
         )
         
-        print(f"\n✅ 步骤3完成：在 {len(cropped_files)} 个装备中找到 {len(matched_items)} 个匹配项")
+        if NODE_LOGGER_AVAILABLE:
+            logger.log_info(f"在 {len(cropped_files)} 个装备中找到 {len(matched_items)} 个匹配项")
+            logger.log_success("步骤3完成")
+            logger.end_node("✅")
+        else:
+            print(f"\n✅ 步骤3完成：在 {len(cropped_files)} 个装备中找到 {len(matched_items)} 个匹配项")
         
         if matched_items:
             print("\n匹配结果:")
@@ -764,6 +853,95 @@ def step3_match_equipment(auto_mode=True, auto_select_base=True, auto_threshold=
         
     except Exception as e:
         print(f"❌ 匹配过程中出错: {e}")
+        return False
+
+def step4_integrate_results(auto_mode=True):
+    """步骤4：整合装备名称和金额识别结果"""
+    if NODE_LOGGER_AVAILABLE:
+        logger = get_logger()
+        logger.start_node("步骤4：整合装备名称和金额识别结果", "📊")
+    else:
+        print("\n" + "=" * 60)
+        print("步骤 4/4：整合装备名称和金额识别结果")
+        print("=" * 60)
+        print("此步骤将整合装备名称和金额识别结果到统一CSV文件")
+        print("-" * 60)
+    
+    # 检查依赖
+    if not check_dependencies():
+        return False
+    
+    # 获取最新的时间目录
+    cropped_equipment_dir = "images/cropped_equipment"
+    cropped_equipment_marker_dir = "images/cropped_equipment_marker"
+    
+    # 查找最新的时间目录
+    subdirs = []
+    for item in os.listdir(cropped_equipment_dir):
+        item_path = os.path.join(cropped_equipment_dir, item)
+        if os.path.isdir(item_path) and item.replace('_', '').replace(':', '').isdigit():
+            subdirs.append(item)
+    
+    if not subdirs:
+        print("❌ 未找到切割装备目录，请先完成步骤2")
+        return False
+    
+    latest_dir = sorted(subdirs)[-1]
+    equipment_folder = os.path.join(cropped_equipment_dir, latest_dir)
+    marker_folder = os.path.join(cropped_equipment_marker_dir, latest_dir)
+    
+    print(f"✓ 找到时间目录: {latest_dir}")
+    print(f"  装备目录: {equipment_folder}")
+    print(f"  金额目录: {marker_folder}")
+    
+    # 执行整合处理
+    try:
+        from src.enhanced_ocr_recognizer import EnhancedOCRRecognizer
+        from src.ocr_config_manager import OCRConfigManager
+        from src.config_manager import get_config_manager
+        
+        # 初始化配置管理器
+        base_config_manager = get_config_manager()
+        ocr_config_manager = OCRConfigManager(base_config_manager)
+        
+        # 初始化增强版OCR识别器
+        recognizer = EnhancedOCRRecognizer(ocr_config_manager)
+        
+        # 执行整合处理
+        records = recognizer.process_and_integrate_results(
+            equipment_folder=equipment_folder,
+            marker_folder=marker_folder
+        )
+        
+        # 输出结果摘要
+        success_count = sum(1 for r in records if r["success"])
+        if NODE_LOGGER_AVAILABLE:
+            logger.log_info(f"处理文件: {len(records)}个")
+            logger.log_info(f"成功整合: {success_count}个")
+            logger.log_info(f"失败数量: {len(records) - success_count}个")
+            logger.log_success("步骤4完成")
+            logger.end_node("✅")
+        else:
+            print(f"\n处理完成:")
+            print(f"  总文件数: {len(records)}")
+            print(f"  成功整合: {success_count}")
+            print(f"  失败数量: {len(records) - success_count}")
+            
+            # 显示成功整合的记录
+            if success_count > 0:
+                print(f"\n成功整合的记录:")
+                for record in records:
+                    if record["success"]:
+                        print(f"  {record['original_filename']} -> {record['new_filename']}")
+                        print(f"    装备名称: {record['equipment_name']}")
+                        print(f"    金额: {record['amount']}")
+        
+        return True
+        
+    except Exception as e:
+        print(f"❌ 整合过程中出错: {e}")
+        import traceback
+        traceback.print_exc()
         return False
 
 def generate_annotated_screenshots():
@@ -1027,29 +1205,78 @@ def run_full_workflow():
     return True
 
 def run_full_auto_workflow(auto_clear_old=True, auto_select_all=True, save_original=True,
-                           auto_select_base=True, auto_threshold=None, auto_generate_annotation=False):
+                           auto_select_base=True, auto_threshold=None, auto_generate_annotation=False,
+                           logger=None):
     """运行全自动工作流程，无需任何手动操作"""
-    print("\n" + "=" * 60)
-    print("🚀 运行全自动工作流程")
-    print("=" * 60)
-    print("自动依次执行三个步骤：获取截图 → 分割图片 → 装备匹配")
-    print("-" * 60)
+    global NODE_LOGGER_AVAILABLE  # 声明使用全局变量
+    
+    # 使用传入的日志管理器或初始化新的
+    if NODE_LOGGER_AVAILABLE and logger is None:
+        try:
+            from src.config_manager import get_config_manager
+            config_manager = get_config_manager()
+            init_logger_from_config(config_manager)
+            logger = get_logger()
+            logger.start_node("装备识别系统", "🚀")
+        except ImportError:
+            try:
+                from config_manager import get_config_manager
+                config_manager = get_config_manager()
+                init_logger_from_config(config_manager)
+                logger = get_logger()
+                logger.start_node("装备识别系统", "🚀")
+            except ImportError:
+                NODE_LOGGER_AVAILABLE = False
+                print("\n" + "=" * 60)
+                print("🚀 运行全自动工作流程")
+                print("=" * 60)
+                print("自动依次执行四个步骤：获取截图 → 分割图片 → 装备匹配 → 整合结果")
+                print("-" * 60)
+    elif NODE_LOGGER_AVAILABLE and logger is not None:
+        logger.start_node("装备识别系统", "🚀")
+    elif not NODE_LOGGER_AVAILABLE:
+        print("\n" + "=" * 60)
+        print("🚀 运行全自动工作流程")
+        print("=" * 60)
+        print("自动依次执行四个步骤：获取截图 → 分割图片 → 装备匹配 → 整合结果")
+        print("-" * 60)
     
     # 步骤1：获取原始图片
     if not step1_get_screenshots(auto_mode=True):
-        print("❌ 步骤1失败，终止自动流程")
+        if NODE_LOGGER_AVAILABLE:
+            logger.log_error("步骤1失败，终止自动流程")
+            logger.end_node("❌")
+        else:
+            print("❌ 步骤1失败，终止自动流程")
         return False
     
     # 步骤2：分割原始图片
     if not step2_cut_screenshots(auto_mode=True, auto_clear_old=auto_clear_old,
                                 auto_select_all=auto_select_all, save_original=save_original):
-        print("❌ 步骤2失败，终止自动流程")
+        if NODE_LOGGER_AVAILABLE:
+            logger.log_error("步骤2失败，终止自动流程")
+            logger.end_node("❌")
+        else:
+            print("❌ 步骤2失败，终止自动流程")
         return False
     
     # 步骤3：装备识别匹配
     if not step3_match_equipment(auto_mode=True, auto_select_base=auto_select_base,
                                auto_threshold=auto_threshold, auto_match_all=True):
-        print("❌ 步骤3失败，终止自动流程")
+        if NODE_LOGGER_AVAILABLE:
+            logger.log_error("步骤3失败，终止自动流程")
+            logger.end_node("❌")
+        else:
+            print("❌ 步骤3失败，终止自动流程")
+        return False
+    
+    # 步骤4：整合装备名称和金额识别结果
+    if not step4_integrate_results(auto_mode=True):
+        if NODE_LOGGER_AVAILABLE:
+            logger.log_error("步骤4失败，终止自动流程")
+            logger.end_node("❌")
+        else:
+            print("❌ 步骤4失败，终止自动流程")
         return False
     
     # 如果启用，自动生成注释
@@ -1162,9 +1389,13 @@ def run_full_auto_workflow(auto_clear_old=True, auto_select_all=True, save_origi
         except Exception as e:
             print(f"⚠️ 自动生成注释时出错: {e}")
     
-    print("\n" + "=" * 60)
-    print("🎉 全自动工作流程执行完成！")
-    print("=" * 60)
+    if NODE_LOGGER_AVAILABLE:
+        logger.log_success("全自动工作流程执行完成！")
+        logger.end_node("✅")
+    else:
+        print("\n" + "=" * 60)
+        print("🎉 全自动工作流程执行完成！")
+        print("=" * 60)
     return True
 
 def run_test():
@@ -1280,42 +1511,83 @@ def show_menu():
     print("\n" + "=" * 60)
     print("游戏装备图像识别系统")
     print("=" * 60)
-    print("【三步工作流程】")
+    print("【四步工作流程】")
     print("1. 步骤1：获取原始图片")
     print("2. 步骤2：分割原始图片")
     print("3. 步骤3：装备识别匹配")
-    print("4. 运行完整工作流程")
-    print("5. 🚀 运行全自动工作流程（推荐）")
+    print("4. 步骤4：整合装备名称和金额识别结果")
+    print("5. 运行完整工作流程")
+    print("6. 🚀 运行全自动工作流程（推荐）")
     print("-" * 60)
     print("【其他功能】")
-    print("6. 检查环境和依赖")
-    print("7. 运行系统测试")
-    print("8. 运行基础示例")
-    print("9. 运行高级示例")
-    print("10. 查看项目文档")
-    print("11. 清理切割结果和日志")
-    print("12. 生成带圆形标记的原图注释")
+    print("7. 检查环境和依赖")
+    print("8. 运行系统测试")
+    print("9. 运行基础示例")
+    print("10. 运行高级示例")
+    print("11. 查看项目文档")
+    print("12. 清理切割结果和日志")
+    print("13. 生成带圆形标记的原图注释")
     print("0. 退出")
     print("-" * 60)
 
 def main():
     """主函数"""
-    print("欢迎使用游戏装备图像识别系统！")
-    print("本系统按照三步工作流程进行：")
-    print("1. 获取原始图片 → 2. 分割原始图片 → 3. 装备识别匹配")
-    print("\n🚀 系统将自动执行完整工作流程，无需手动操作...")
+    global NODE_LOGGER_AVAILABLE  # 声明使用全局变量
     
-    # 直接执行全自动工作流程
-    print("\n🚀 启动全自动工作流程...")
-    success = run_full_auto_workflow(auto_clear_old=True, auto_select_all=True, save_original=False,
-                                     auto_select_base=True, auto_threshold=None, auto_generate_annotation=False)
-    
-    if success:
-        print("\n✅ 全自动工作流程执行完成！")
+    if NODE_LOGGER_AVAILABLE:
+        try:
+            # 初始化节点日志管理器
+            from src.config_manager import get_config_manager
+            config_manager = get_config_manager()
+            init_logger_from_config(config_manager)
+            logger = get_logger()
+            
+            # 直接执行全自动工作流程，传递已初始化的日志管理器
+            success = run_full_auto_workflow(auto_clear_old=True, auto_select_all=True, save_original=False,
+                                             auto_select_base=True, auto_threshold=None, auto_generate_annotation=False,
+                                             logger=logger)
+            
+            if success:
+                logger.log_info("全自动工作流程执行完成！")
+            else:
+                logger.log_error("全自动工作流程执行失败！")
+            
+            logger.log_info("感谢使用，再见！")
+        except ImportError:
+            NODE_LOGGER_AVAILABLE = False
+            print("欢迎使用游戏装备图像识别系统！")
+            print("本系统按照三步工作流程进行：")
+            print("1. 获取原始图片 → 2. 分割原始图片 → 3. 装备识别匹配")
+            print("\n🚀 系统将自动执行完整工作流程，无需手动操作...")
+            
+            # 直接执行全自动工作流程
+            print("\n🚀 启动全自动工作流程...")
+            success = run_full_auto_workflow(auto_clear_old=True, auto_select_all=True, save_original=False,
+                                             auto_select_base=True, auto_threshold=None, auto_generate_annotation=False)
+            
+            if success:
+                print("\n✅ 全自动工作流程执行完成！")
+            else:
+                print("\n❌ 全自动工作流程执行失败！")
+            
+            print("\n感谢使用，再见！")
     else:
-        print("\n❌ 全自动工作流程执行失败！")
-    
-    print("\n感谢使用，再见！")
+        print("欢迎使用游戏装备图像识别系统！")
+        print("本系统按照三步工作流程进行：")
+        print("1. 获取原始图片 → 2. 分割原始图片 → 3. 装备识别匹配")
+        print("\n🚀 系统将自动执行完整工作流程，无需手动操作...")
+        
+        # 直接执行全自动工作流程
+        print("\n🚀 启动全自动工作流程...")
+        success = run_full_auto_workflow(auto_clear_old=True, auto_select_all=True, save_original=False,
+                                         auto_select_base=True, auto_threshold=None, auto_generate_annotation=False)
+        
+        if success:
+            print("\n✅ 全自动工作流程执行完成！")
+        else:
+            print("\n❌ 全自动工作流程执行失败！")
+        
+        print("\n感谢使用，再见！")
 
 if __name__ == "__main__":
     main()

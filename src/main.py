@@ -6,6 +6,13 @@ from .equipment_recognizer import EnhancedEquipmentRecognizer
 from .screenshot_cutter import ScreenshotCutter
 from .config_manager import get_config_manager, create_recognizer_from_config
 
+# 导入节点日志管理器
+try:
+    from .node_logger import get_logger
+    NODE_LOGGER_AVAILABLE = True
+except ImportError:
+    NODE_LOGGER_AVAILABLE = False
+
 class EquipmentMatcher:
     """装备匹配器，整合切割和识别功能"""
     
@@ -42,12 +49,20 @@ class EquipmentMatcher:
         all_items = []
         all_match_details = []
         
-        print(f"\n开始批量对比，基准图像: {base_img_path}")
-        print(f"匹配阈值: {current_threshold}%")
-        algorithm_info = self.recognizer.get_algorithm_info()
-        algorithm_name = algorithm_info.get('algorithm_name', '未知算法')
-        print(f"使用算法: {algorithm_name}")
-        print("-" * 50)
+        if NODE_LOGGER_AVAILABLE:
+            logger = get_logger()
+            logger.start_node(f"装备匹配: {os.path.basename(base_img_path)}", "🔍")
+            logger.log_info(f"匹配阈值: {current_threshold}%")
+            algorithm_info = self.recognizer.get_algorithm_info()
+            algorithm_name = algorithm_info.get('algorithm_name', '未知算法')
+            logger.log_info(f"使用算法: {algorithm_name}")
+        else:
+            print(f"\n开始批量对比，基准图像: {base_img_path}")
+            print(f"匹配阈值: {current_threshold}%")
+            algorithm_info = self.recognizer.get_algorithm_info()
+            algorithm_name = algorithm_info.get('algorithm_name', '未知算法')
+            print(f"使用算法: {algorithm_name}")
+            print("-" * 50)
         
         for filename in sorted(os.listdir(crop_folder)):
             if filename.lower().endswith(('.png', '.jpg', '.jpeg', '.webp')):
@@ -63,9 +78,15 @@ class EquipmentMatcher:
                 
                 if is_match:
                     matched_items.append((filename, similarity))
-                    print(f"【匹配成功】{filename} - 相似度：{similarity}%")
+                    if NODE_LOGGER_AVAILABLE:
+                        logger.log_success(f"{filename} - 相似度：{similarity:.2f}%")
+                    else:
+                        print(f"【匹配成功】{filename} - 相似度：{similarity}%")
                 else:
-                    print(f"【未匹配】{filename} - 相似度：{similarity}%")
+                    if NODE_LOGGER_AVAILABLE:
+                        logger.log_info(f"{filename} - 相似度：{similarity:.2f}%")
+                    else:
+                        print(f"【未匹配】{filename} - 相似度：{similarity}%")
         
         # 保存结果
         result_data = {
@@ -82,15 +103,27 @@ class EquipmentMatcher:
         self.results.append(result_data)
         
         # 输出汇总信息
-        print("-" * 50)
-        print(f"处理完成！总计 {len(all_items)} 个装备，匹配 {len(matched_items)} 个")
-        
-        if matched_items:
-            print("\n匹配结果汇总：")
-            for filename, similarity in matched_items:
-                print(f"- {filename}: {similarity}%")
+        if NODE_LOGGER_AVAILABLE:
+            logger.log_info(f"处理完成！总计 {len(all_items)} 个装备，匹配 {len(matched_items)} 个")
+            
+            if matched_items:
+                logger.log_info("匹配结果:")
+                for filename, similarity in matched_items:
+                    logger.log_info(f"- {filename}: {similarity:.2f}%")
+            else:
+                logger.log_warning("未找到匹配的装备")
+            
+            logger.end_node("✅")
         else:
-            print("\n未找到匹配的装备")
+            print("-" * 50)
+            print(f"处理完成！总计 {len(all_items)} 个装备，匹配 {len(matched_items)} 个")
+            
+            if matched_items:
+                print("\n匹配结果汇总：")
+                for filename, similarity in matched_items:
+                    print(f"- {filename}: {similarity}%")
+            else:
+                print("\n未找到匹配的装备")
         
         # 生成综合匹配报告
         # self._generate_comprehensive_report(crop_folder, base_img_path, all_match_details, matched_items, current_threshold)

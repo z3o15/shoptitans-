@@ -102,5 +102,18 @@
         "denoise": true
       }
     ]
+  },
+  "console_output": {
+    "show_debug": false,
+    "show_progress": true,
+    "compact_mode": true,
+    "node_icons": {
+      "init": "🚀",
+      "step1": "🖼️",
+      "step2": "✂️",
+      "step3": "🔍",
+      "step4": "📊",
+      "complete": "✅"
+    }
   }
 }
