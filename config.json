@@ -1,7 +1,7 @@
 {
   "recognition": {
     "default_threshold": 80,
-    "algorithm_type": "feature",
+    "algorithm_type": "enhanced_feature",
     "feature_type": "ORB",
     "min_match_count": 8,
     "match_ratio_threshold": 0.75,
@@ -9,7 +9,39 @@
     "use_advanced_algorithm": true,
     "enable_masking": true,
     "enable_histogram": true,
+    "target_size": [116, 116],
+    "nfeatures": 3000,
+    "use_cache": true,
+    "cache_dir": "images/cache",
+    "auto_cache_update": true,
     "algorithm_description": "特征匹配算法(ORB)提供最准确的装备识别，高级模板匹配提供彩色匹配，传统dHash算法提供更快的处理速度"
+  },
+  "preprocessing": {
+    "enable_enhancement": true,
+    "histogram_equalization": true,
+    "gaussian_blur": true,
+    "canny_edges": true,
+    "canny_low_threshold": 30,
+    "canny_high_threshold": 120
+  },
+  "feature_cache": {
+    "enabled": true,
+    "cache_dir": "images/cache",
+    "target_size": [116, 116],
+    "nfeatures": 3000,
+    "auto_update": true
+  },
+  "quality_check": {
+    "enabled": true,
+    "min_resolution": [50, 50],
+    "min_features": 10,
+    "auto_report": true
+  },
+  "debug": {
+    "enable_visual_debug": false,
+    "save_match_heatmaps": false,
+    "save_homography_overlays": false,
+    "debug_output_dir": "debug/"
   },
   "cutting": {
     "default_method": "fixed",

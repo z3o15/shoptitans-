@@ -49,13 +49,13 @@ class EnhancedFeatureEquipmentRecognizer(FeatureEquipmentRecognizer):
             target_size: 目标图像尺寸
             nfeatures: ORB特征点数量
         """
-        # 调用父类初始化
-        super().__init__(feature_type, min_match_count, match_ratio_threshold, min_homography_inliers)
-        
-        # 添加缓存支持
+        # 先设置子类属性，再调用父类初始化
         self.use_cache = use_cache
         self.target_size = target_size
         self.nfeatures = nfeatures
+        
+        # 调用父类初始化
+        super().__init__(feature_type, min_match_count, match_ratio_threshold, min_homography_inliers)
         
         print(f"✓ 增强特征匹配识别器初始化完成")
         print(f"  - 特征算法: {feature_type.value}")
@@ -84,6 +84,22 @@ class EnhancedFeatureEquipmentRecognizer(FeatureEquipmentRecognizer):
         
         # 创建标准尺寸的检测器（用于目标图像）
         self.standard_detector = self._create_detector()
+    
+    def _create_detector(self):
+        """创建增强的特征检测器"""
+        if self.feature_type == FeatureType.SIFT:
+            return cv2.SIFT_create()
+        elif self.feature_type == FeatureType.ORB:
+            return cv2.ORB_create(
+                nfeatures=self.nfeatures,  # 使用配置的特征点数量
+                scaleFactor=1.1,
+                edgeThreshold=15,
+                patchSize=31
+            )
+        elif self.feature_type == FeatureType.AKAZE:
+            return cv2.AKAZE_create()
+        else:
+            raise ValueError(f"不支持的特征类型: {self.feature_type}")
     
     def build_cache_if_needed(self, base_equipment_dir):
         """
@@ -365,14 +381,25 @@ class EnhancedFeatureEquipmentRecognizer(FeatureEquipmentRecognizer):
             else:
                 gray = image_array
             
-            # 应用直方图均衡化增强对比度
+            # 应用预处理增强（针对游戏装备图标）
+            # 1. 直方图均衡化增强对比度
             gray = cv2.equalizeHist(gray)
+            
+            # 2. 高斯模糊减少噪声
+            blur = cv2.GaussianBlur(gray, (3,3), 0)
+            
+            # 3. Canny边缘检测增强特征
+            enhanced = cv2.Canny(blur, 30, 120)
+            
+            # 对于游戏装备图标，使用Canny边缘检测结果
+            # 如果特征点仍然太少，可以回退到使用增强后的灰度图
+            processed = enhanced
             
             # 标准化尺寸（如果需要）
             if standardize_size:
-                gray = self._standardize_image_size(gray)
+                processed = self._standardize_image_size(processed)
             
-            return gray
+            return processed
             
         except Exception as e:
             print(f"图像预处理失败 {image_path}: {e}")

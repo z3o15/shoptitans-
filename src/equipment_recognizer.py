@@ -8,6 +8,16 @@ from typing import List, Tuple, Optional, Dict, Any
 from dataclasses import dataclass
 from enum import Enum
 
+# 导入图像哈希工具
+try:
+    from .utils.image_hash import get_dhash
+except ImportError:
+    try:
+        from utils.image_hash import get_dhash
+    except ImportError:
+        print("警告: 无法导入图像哈希工具，dHash功能将不可用")
+        get_dhash = None
+
 # 导入独立模块的高级识别器
 ADVANCED_MATCHER_AVAILABLE = False
 AdvancedEquipmentRecognizer = None
@@ -168,7 +178,8 @@ class EnhancedEquipmentRecognizer:
     def __init__(self, default_threshold=80, algorithm_type="enhanced_feature",
                  enable_masking=True, enable_histogram=True,
                  feature_type="ORB", min_match_count=10, match_ratio_threshold=0.75,
-                 use_cache=True, cache_dir="images/cache", target_size=(116, 116), nfeatures=1000):
+                 use_cache=True, cache_dir="images/cache", target_size=(116, 116), nfeatures=1000,
+                 auto_update_cache=True, base_equipment_dir="images/base_equipment"):
         """初始化增强版装备识别器
         
         Args:
@@ -183,17 +194,28 @@ class EnhancedEquipmentRecognizer:
             cache_dir: 缓存目录路径
             target_size: 目标图像尺寸
             nfeatures: ORB特征点数量
+            auto_update_cache: 是否自动更新缓存
+            base_equipment_dir: 基准装备目录
         """
         self.default_threshold = default_threshold
         self.algorithm_type = algorithm_type
         self.feature_type = feature_type
         self.min_match_count = min_match_count
         self.match_ratio_threshold = match_ratio_threshold
+        self.use_cache = use_cache
+        self.cache_dir = cache_dir
+        self.target_size = target_size
+        self.nfeatures = nfeatures
+        self.auto_update_cache = auto_update_cache
+        self.base_equipment_dir = base_equipment_dir
         
         # 初始化识别器
         self.advanced_recognizer = None
         self.feature_recognizer = None
         self.enhanced_feature_recognizer = None
+        
+        # 初始化自动缓存更新器
+        self.auto_cache_updater = None
         
         if algorithm_type == "enhanced_feature" and ENHANCED_FEATURE_MATCHER_AVAILABLE:
             try:
@@ -210,6 +232,25 @@ class EnhancedEquipmentRecognizer:
                     nfeatures=nfeatures
                 )
                 print(f"✓ 增强特征匹配装备识别器已启用（缓存：{'启用' if use_cache else '禁用'}）")
+                
+                # 初始化自动缓存更新器
+                if use_cache and auto_update_cache:
+                    try:
+                        from .cache.auto_cache_updater import AutoCacheUpdater
+                        self.auto_cache_updater = AutoCacheUpdater(
+                            cache_dir=cache_dir,
+                            target_size=target_size,
+                            nfeatures=nfeatures,
+                            auto_update=True
+                        )
+                        
+                        # 检查是否需要自动更新缓存
+                        self._check_and_update_cache()
+                        
+                    except Exception as e:
+                        print(f"⚠️ 自动缓存更新器初始化失败: {e}")
+                        self.auto_cache_updater = None
+                
             except Exception as e:
                 print(f"❌ 增强特征识别器初始化失败: {e}")
                 raise RuntimeError("增强特征识别器初始化失败")
@@ -249,6 +290,13 @@ class EnhancedEquipmentRecognizer:
             else:
                 raise ValueError(f"不支持的算法类型: {algorithm_type}")
         
+        # 添加get_dhash方法（如果可用）
+        if get_dhash is not None:
+            self.get_dhash = get_dhash
+            print(f"  - dHash功能: 已启用")
+        else:
+            print(f"  - dHash功能: 不可用（缺少图像哈希工具）")
+        
         print(f"✓ 增强版装备识别器初始化完成")
         print(f"  - 当前算法: {self._get_algorithm_name()}")
         print(f"  - 默认阈值: {default_threshold}%")
@@ -257,8 +305,14 @@ class EnhancedEquipmentRecognizer:
             print(f"  - 最少匹配数: {min_match_count}")
             print(f"  - 匹配比例阈值: {match_ratio_threshold}")
             print(f"  - 使用缓存: {'是' if use_cache else '否'}")
+            print(f"  - 自动更新缓存: {'是' if auto_update_cache else '否'}")
             print(f"  - 目标尺寸: {target_size}")
             print(f"  - 特征点数: {nfeatures}")
+            if self.auto_cache_updater:
+                cache_status = self.auto_cache_updater.get_cache_status()
+                print(f"  - 缓存状态: {'存在' if cache_status['cache_exists'] else '不存在'}")
+                if cache_status['cache_exists']:
+                    print(f"  - 缓存装备数: {cache_status['equipment_count']}")
         elif algorithm_type == "advanced":
             print(f"  - 掩码匹配: {'启用' if enable_masking else '禁用'}")
             print(f"  - 直方图验证: {'启用' if enable_histogram else '禁用'}")
@@ -309,6 +363,83 @@ class EnhancedEquipmentRecognizer:
             })
         
         return info
+    
+    def _check_and_update_cache(self):
+        """检查并自动更新缓存"""
+        if not self.auto_cache_updater:
+            return
+        
+        try:
+            # 检查基准装备目录是否存在
+            if not os.path.exists(self.base_equipment_dir):
+                print(f"⚠️ 基准装备目录不存在: {self.base_equipment_dir}")
+                return
+            
+            # 获取基准装备数量
+            equipment_files = [f for f in os.listdir(self.base_equipment_dir)
+                             if f.lower().endswith(('.png', '.jpg', '.jpeg', '.webp'))]
+            equipment_count = len(equipment_files)
+            
+            # 获取缓存状态
+            cache_status = self.auto_cache_updater.get_cache_status()
+            
+            # 如果缓存不存在或装备数量>=50，自动更新缓存
+            if not cache_status['cache_exists'] or equipment_count >= 50:
+                print(f"检测到需要更新缓存:")
+                print(f"  - 基准装备数: {equipment_count}")
+                print(f"  - 缓存存在: {'是' if cache_status['cache_exists'] else '否'}")
+                print(f"  - 缓存装备数: {cache_status['equipment_count']}")
+                
+                # 自动更新缓存
+                success = self.auto_cache_updater.auto_update_if_needed(self.base_equipment_dir)
+                if success:
+                    print("✓ 缓存自动更新成功")
+                else:
+                    print("❌ 缓存自动更新失败")
+            else:
+                print(f"缓存已是最新，无需更新")
+                
+        except Exception as e:
+            print(f"❌ 检查和更新缓存失败: {e}")
+    
+    def update_cache_manually(self, incremental_only=True):
+        """手动更新缓存
+        
+        Args:
+            incremental_only: 是否仅增量更新，False则完全重建
+            
+        Returns:
+            是否更新成功
+        """
+        if not self.auto_cache_updater:
+            print("❌ 自动缓存更新器未初始化")
+            return False
+        
+        try:
+            print(f"开始手动更新缓存...")
+            success = self.auto_cache_updater.update_cache(self.base_equipment_dir, incremental_only)
+            if success:
+                print("✓ 缓存手动更新成功")
+            else:
+                print("❌ 缓存手动更新失败")
+            return success
+        except Exception as e:
+            print(f"❌ 手动更新缓存失败: {e}")
+            return False
+    
+    def get_cache_status(self):
+        """获取缓存状态信息
+        
+        Returns:
+            缓存状态字典
+        """
+        if not self.auto_cache_updater:
+            return {"error": "自动缓存更新器未初始化"}
+        
+        try:
+            return self.auto_cache_updater.get_cache_status()
+        except Exception as e:
+            return {"error": f"获取缓存状态失败: {e}"}
     
     def _convert_advanced_result(self, advanced_result: Any) -> Tuple[float, bool]:
         """将高级匹配结果转换为标准格式

@@ -493,10 +493,11 @@ def step2_cut_screenshots(auto_mode=True, auto_clear_old=True, auto_select_all=T
             
             matched_items = []  # 不进行匹配，只切割
             
-            # 统计切割的装备数量
+            # 统计切割的装备数量（只统计矩形版本，不包含"_circle"后缀的文件）
             cropped_items = 0
             for filename in os.listdir(output_folder):
-                if filename.lower().endswith(('.png', '.jpg', '.jpeg', '.webp')):
+                if (filename.lower().endswith(('.png', '.jpg', '.jpeg', '.webp')) and
+                    "_circle" not in filename):
                     cropped_items += 1
             
             print(f"✓ 从 {screenshot} 切割出 {cropped_items} 个装备到 {time_folder}/")

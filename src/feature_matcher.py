@@ -73,7 +73,12 @@ class FeatureEquipmentRecognizer:
         if self.feature_type == FeatureType.SIFT:
             return cv2.SIFT_create()
         elif self.feature_type == FeatureType.ORB:
-            return cv2.ORB_create(nfeatures=1000)
+            return cv2.ORB_create(
+                nfeatures=3000,  # 增加特征点数量
+                scaleFactor=1.1,
+                edgeThreshold=15,
+                patchSize=31
+            )
         elif self.feature_type == FeatureType.AKAZE:
             return cv2.AKAZE_create()
         else:
@@ -105,7 +110,19 @@ class FeatureEquipmentRecognizer:
             else:
                 gray = image_array
             
-            return gray
+            # 应用预处理增强（针对游戏装备图标）
+            # 1. 直方图均衡化增强对比度
+            gray = cv2.equalizeHist(gray)
+            
+            # 2. 高斯模糊减少噪声
+            blur = cv2.GaussianBlur(gray, (3,3), 0)
+            
+            # 3. Canny边缘检测增强特征
+            enhanced = cv2.Canny(blur, 30, 120)
+            
+            # 对于游戏装备图标，使用Canny边缘检测结果
+            # 如果特征点仍然太少，可以回退到使用增强后的灰度图
+            return enhanced
             
         except Exception as e:
             print(f"图像预处理失败 {image_path}: {e}")
