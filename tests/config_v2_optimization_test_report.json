@@ -1,0 +1,41 @@
+{
+  "timestamp": "2025-11-23T11:48:50.198382",
+  "total_tests": 8,
+  "passed": 8,
+  "failed": 0,
+  "pass_rate": 100.0,
+  "results": [
+    {
+      "name": "图像哈希功能",
+      "passed": true
+    },
+    {
+      "name": "增强特征匹配功能",
+      "passed": true
+    },
+    {
+      "name": "增强装备识别器",
+      "passed": true
+    },
+    {
+      "name": "自动缓存更新器",
+      "passed": true
+    },
+    {
+      "name": "装备图像检测器",
+      "passed": true
+    },
+    {
+      "name": "可视化调试器",
+      "passed": true
+    },
+    {
+      "name": "预处理流水线",
+      "passed": true
+    },
+    {
+      "name": "配置加载",
+      "passed": true
+    }
+  ]
+}
