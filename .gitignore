@@ -129,9 +129,7 @@ dmypy.json
 .pyre/
 
 # Project specific
-images/cropped_equipment/
-images/cropped_equipment_marker/
-images/cache/
+images/
 recognition_logs/
 output/
 *.pkl
