@@ -9,7 +9,7 @@
     "use_advanced_algorithm": true,
     "enable_masking": true,
     "enable_histogram": true,
-    "algorithm_description": "高级彩色模板匹配算法，使用掩码直方图和颜色信息提供精确的装备识别"
+    "algorithm_description": "特征匹配算法(ORB)提供最准确的装备识别，高级模板匹配提供彩色匹配，传统dHash算法提供更快的处理速度"
   },
   "cutting": {
     "default_method": "fixed",
@@ -65,15 +65,22 @@
     "language": [
       "en"
     ],
-    "price_pattern": "\\d{1,3}(?:,\\d{3})*",
-    "confidence_threshold": 0.7,
+    "price_pattern": "\\d+",
+    "confidence_threshold": 0.8,
     "preprocessing": {
-      "grayscale": false,
-      "threshold": false,
-      "denoise": false
+      "grayscale": true,
+      "threshold": true,
+      "denoise": true
     },
-    "input_folder": "images/cropped_equipment_marker/20251122_183651",
-    "output_csv": "final_ocr_output.csv",
+    "recognition_region": {
+      "enabled": true,
+      "left": 27,
+      "right": 145,
+      "top": 122,
+      "bottom": 152
+    },
+    "input_folder": "images/cropped_equipment_marker",
+    "output_csv": "ocr_rename_records.csv",
     "rename_separator": "_",
     "supported_formats": [
       ".png",
@@ -81,39 +88,6 @@
       ".jpeg",
       ".bmp",
       ".tiff"
-    ],
-    "fallback_preprocessing": [
-      {
-        "name": "原始图像",
-        "grayscale": false,
-        "threshold": false,
-        "denoise": false
-      },
-      {
-        "name": "仅灰度化",
-        "grayscale": true,
-        "threshold": false,
-        "denoise": false
-      },
-      {
-        "name": "灰度化+降噪",
-        "grayscale": true,
-        "threshold": false,
-        "denoise": true
-      }
     ]
-  },
-  "console_output": {
-    "show_debug": false,
-    "show_progress": true,
-    "compact_mode": true,
-    "node_icons": {
-      "init": "🚀",
-      "step1": "🖼️",
-      "step2": "✂️",
-      "step3": "🔍",
-      "step4": "📊",
-      "complete": "✅"
-    }
   }
 }

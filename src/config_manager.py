@@ -216,6 +216,14 @@ class ConfigManager:
         """
         return self.config.get("console_output", {})
     
+    def get_feature_cache_config(self) -> Dict[str, Any]:
+        """获取特征缓存配置
+        
+        Returns:
+            特征缓存配置字典
+        """
+        return self.config.get("feature_cache", {})
+    
     def update_recognition_config(self, **kwargs) -> None:
         """更新识别配置
         

@@ -21,6 +21,10 @@ FeatureEquipmentRecognizer = None
 FeatureMatchResult = None
 FeatureType = None
 
+# 导入增强特征匹配器
+ENHANCED_FEATURE_MATCHER_AVAILABLE = False
+EnhancedFeatureEquipmentRecognizer = None
+
 try:
     # 尝试从项目根目录导入
     import sys
@@ -47,10 +51,17 @@ try:
     )
     FEATURE_MATCHER_AVAILABLE = True
     
+    # 导入增强特征匹配器
+    from src.enhanced_feature_matcher import (
+        EnhancedFeatureEquipmentRecognizer
+    )
+    ENHANCED_FEATURE_MATCHER_AVAILABLE = True
+    
 except ImportError as e:
     print(f"警告: 无法导入高级匹配器，将仅使用传统dHash算法: {e}")
     ADVANCED_MATCHER_AVAILABLE = False
     FEATURE_MATCHER_AVAILABLE = False
+    ENHANCED_FEATURE_MATCHER_AVAILABLE = False
 
 class EquipmentRecognizer:
     """游戏装备识别器，使用dHash算法进行图像相似度比较"""
@@ -147,25 +158,31 @@ class EquipmentRecognizer:
 class EnhancedEquipmentRecognizer:
     """增强版装备识别器，支持多种算法
     
-    支持三种算法：
+    支持四种算法：
     1. 高级彩色模板匹配（AdvancedEquipmentRecognizer）
-    2. 特征匹配（FeatureEquipmentRecognizer）
-    3. 传统dHash算法
+    2. 增强特征匹配（EnhancedFeatureEquipmentRecognizer）- 支持缓存
+    3. 特征匹配（FeatureEquipmentRecognizer）
+    4. 传统dHash算法
     """
     
-    def __init__(self, default_threshold=80, algorithm_type="feature",
+    def __init__(self, default_threshold=80, algorithm_type="enhanced_feature",
                  enable_masking=True, enable_histogram=True,
-                 feature_type="ORB", min_match_count=10, match_ratio_threshold=0.75):
+                 feature_type="ORB", min_match_count=10, match_ratio_threshold=0.75,
+                 use_cache=True, cache_dir="images/cache", target_size=(116, 116), nfeatures=1000):
         """初始化增强版装备识别器
         
         Args:
             default_threshold: 默认匹配阈值，相似度高于此值视为匹配
-            algorithm_type: 算法类型 ("feature", "advanced", "traditional")
+            algorithm_type: 算法类型 ("enhanced_feature", "feature", "advanced", "traditional")
             enable_masking: 是否启用掩码匹配（仅高级算法）
             enable_histogram: 是否启用直方图验证（仅高级算法）
             feature_type: 特征类型 ("SIFT", "ORB", "AKAZE")
             min_match_count: 最少特征匹配数量
             match_ratio_threshold: 特征匹配比例阈值
+            use_cache: 是否使用特征缓存（仅增强特征匹配）
+            cache_dir: 缓存目录路径
+            target_size: 目标图像尺寸
+            nfeatures: ORB特征点数量
         """
         self.default_threshold = default_threshold
         self.algorithm_type = algorithm_type
@@ -176,8 +193,27 @@ class EnhancedEquipmentRecognizer:
         # 初始化识别器
         self.advanced_recognizer = None
         self.feature_recognizer = None
+        self.enhanced_feature_recognizer = None
         
-        if algorithm_type == "advanced" and ADVANCED_MATCHER_AVAILABLE:
+        if algorithm_type == "enhanced_feature" and ENHANCED_FEATURE_MATCHER_AVAILABLE:
+            try:
+                # 转换特征类型字符串为枚举
+                feature_enum = FeatureType[feature_type.upper()]
+                self.enhanced_feature_recognizer = EnhancedFeatureEquipmentRecognizer(
+                    feature_type=feature_enum,
+                    min_match_count=min_match_count,
+                    match_ratio_threshold=match_ratio_threshold,
+                    min_homography_inliers=max(6, min_match_count // 2),
+                    use_cache=use_cache,
+                    cache_dir=cache_dir,
+                    target_size=target_size,
+                    nfeatures=nfeatures
+                )
+                print(f"✓ 增强特征匹配装备识别器已启用（缓存：{'启用' if use_cache else '禁用'}）")
+            except Exception as e:
+                print(f"❌ 增强特征识别器初始化失败: {e}")
+                raise RuntimeError("增强特征识别器初始化失败")
+        elif algorithm_type == "advanced" and ADVANCED_MATCHER_AVAILABLE:
             try:
                 self.advanced_recognizer = AdvancedEquipmentRecognizer(
                     enable_masking=enable_masking,
@@ -204,7 +240,9 @@ class EnhancedEquipmentRecognizer:
         elif algorithm_type == "traditional":
             print(f"✓ 传统dHash算法已启用")
         else:
-            if algorithm_type == "advanced" and not ADVANCED_MATCHER_AVAILABLE:
+            if algorithm_type == "enhanced_feature" and not ENHANCED_FEATURE_MATCHER_AVAILABLE:
+                raise RuntimeError("增强特征匹配器不可用")
+            elif algorithm_type == "advanced" and not ADVANCED_MATCHER_AVAILABLE:
                 raise RuntimeError("高级匹配器不可用")
             elif algorithm_type == "feature" and not FEATURE_MATCHER_AVAILABLE:
                 raise RuntimeError("特征匹配器不可用")
@@ -214,7 +252,14 @@ class EnhancedEquipmentRecognizer:
         print(f"✓ 增强版装备识别器初始化完成")
         print(f"  - 当前算法: {self._get_algorithm_name()}")
         print(f"  - 默认阈值: {default_threshold}%")
-        if algorithm_type == "advanced":
+        if algorithm_type == "enhanced_feature":
+            print(f"  - 特征类型: {feature_type}")
+            print(f"  - 最少匹配数: {min_match_count}")
+            print(f"  - 匹配比例阈值: {match_ratio_threshold}")
+            print(f"  - 使用缓存: {'是' if use_cache else '否'}")
+            print(f"  - 目标尺寸: {target_size}")
+            print(f"  - 特征点数: {nfeatures}")
+        elif algorithm_type == "advanced":
             print(f"  - 掩码匹配: {'启用' if enable_masking else '禁用'}")
             print(f"  - 直方图验证: {'启用' if enable_histogram else '禁用'}")
         elif algorithm_type == "feature":
@@ -224,7 +269,9 @@ class EnhancedEquipmentRecognizer:
     
     def _get_algorithm_name(self) -> str:
         """获取当前算法名称"""
-        if self.algorithm_type == "advanced":
+        if self.algorithm_type == "enhanced_feature":
+            return f"增强特征匹配({self.feature_type}, 缓存)"
+        elif self.algorithm_type == "advanced":
             return "高级彩色模板匹配"
         elif self.algorithm_type == "feature":
             return f"特征匹配({self.feature_type})"
@@ -303,7 +350,19 @@ class EnhancedEquipmentRecognizer:
         current_threshold = threshold if threshold is not None else self.default_threshold
         
         try:
-            if self.algorithm_type == "advanced" and self.advanced_recognizer is not None:
+            if self.algorithm_type == "enhanced_feature" and self.enhanced_feature_recognizer is not None:
+                # 使用增强特征匹配算法（支持缓存）
+                print(f"使用增强特征匹配算法({self.feature_type}, 缓存)比较图像")
+                feature_result = self.enhanced_feature_recognizer.recognize_equipment(image_path1, image_path2)
+                similarity, is_match = self._convert_feature_result(feature_result)
+                
+                # 输出详细结果
+                print(f"  - 匹配数量: {feature_result.match_count}")
+                print(f"  - 单应性内点: {feature_result.homography_inliers}")
+                print(f"  - 匹配比例: {feature_result.match_ratio:.4f}")
+                print(f"  - 置信度: {feature_result.confidence:.2f}%")
+                
+            elif self.algorithm_type == "advanced" and self.advanced_recognizer is not None:
                 # 使用高级彩色模板匹配算法
                 print(f"使用高级彩色模板匹配算法比较图像")
                 advanced_result = self.advanced_recognizer.recognize_equipment(image_path1, image_path2)
@@ -397,7 +456,27 @@ class EnhancedEquipmentRecognizer:
             for target_file in target_files:
                 target_path = str(target_file)
                 
-                if self.algorithm_type == "advanced" and self.advanced_recognizer is not None:
+                if self.algorithm_type == "enhanced_feature" and self.enhanced_feature_recognizer is not None:
+                    # 使用增强特征匹配算法（支持缓存）
+                    feature_result = self.enhanced_feature_recognizer.recognize_equipment(
+                        base_image_path, target_path
+                    )
+                    
+                    if feature_result.confidence >= current_threshold:
+                        result_dict = {
+                            'item_name': feature_result.item_name,
+                            'item_path': target_path,
+                            'confidence': feature_result.confidence,
+                            'similarity': feature_result.confidence,  # 特征匹配使用置信度作为相似度
+                            'matched_by': f'ENHANCED_FEATURE_{feature_result.algorithm_used}',
+                            'algorithm': 'enhanced_feature',
+                            'match_count': feature_result.match_count,
+                            'homography_inliers': feature_result.homography_inliers,
+                            'match_ratio': feature_result.match_ratio
+                        }
+                        results.append(result_dict)
+                        
+                elif self.algorithm_type == "advanced" and self.advanced_recognizer is not None:
                     # 使用高级算法
                     advanced_result = self.advanced_recognizer.recognize_equipment(
                         base_image_path, target_path

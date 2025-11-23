@@ -1,0 +1,17 @@
+{
+  "test_time": "2025-11-23T10:01:38.412707",
+  "test_images": 5,
+  "total_comparisons": 10,
+  "traditional_matcher": {
+    "average_time": 0.14814119338989257,
+    "total_time": 1.4814119338989258
+  },
+  "enhanced_matcher": {
+    "average_time": 0.028448152542114257,
+    "total_time": 0.2844815254211426
+  },
+  "performance_improvement": {
+    "speedup": 5.207409977522666,
+    "time_saved_percent": 80.79659553758177
+  }
+}

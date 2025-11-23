@@ -158,6 +158,24 @@ class FeatureEquipmentRecognizer:
                     if m.distance < self.match_ratio_threshold * n.distance:
                         good_matches.append(m)
             
+            # 如果比例测试后匹配太少，使用更宽松的阈值
+            if len(good_matches) < self.min_match_count:
+                good_matches = []
+                for match_pair in matches:
+                    if len(match_pair) == 2:
+                        m, n = match_pair
+                        # 非常宽松的阈值
+                        if m.distance < 0.9 * n.distance:
+                            good_matches.append(m)
+            
+            # 如果仍然太少，直接使用最佳匹配
+            if len(good_matches) < self.min_match_count:
+                matcher_strict = cv2.BFMatcher(cv2.NORM_HAMMING, crossCheck=True)
+                direct_matches = matcher_strict.match(desc1, desc2)
+                direct_matches = sorted(direct_matches, key=lambda x: x.distance)
+                # 限制匹配数量，避免过多低质量匹配
+                return direct_matches[:min(len(direct_matches), 50)]
+            
             return good_matches
             
         except Exception as e:
@@ -429,6 +447,9 @@ def test_feature_matcher():
     print(f"有效匹配: {result.is_valid_match}")
     print(f"使用算法: {result.algorithm_used}")
 
+
+# 为了向后兼容，创建别名
+FeatureEquipmentMatcher = FeatureEquipmentRecognizer
 
 if __name__ == "__main__":
     test_feature_matcher()
