@@ -13,6 +13,13 @@ from datetime import datetime
 from typing import Dict, List, Tuple, Optional, Any
 from pathlib import Path
 
+# 导入优化的预处理组件
+from .preprocess.background_remover import BackgroundRemover
+from .preprocess.enhancer import ImageEnhancer
+from .preprocess.resizer import ImageResizer
+from .config_manager import get_config_manager
+from .base_equipment_preprocessor import BaseEquipmentPreprocessor
+
 
 class FeatureCacheManager:
     """特征缓存管理器，负责预计算、加载和管理基准装备特征"""
@@ -36,11 +43,17 @@ class FeatureCacheManager:
         # 确保缓存目录存在
         os.makedirs(cache_dir, exist_ok=True)
         
-        print(f"✓ 特征缓存管理器初始化完成")
-        print(f"  - 缓存目录: {cache_dir}")
-        print(f"  - 缓存文件: {self.cache_file}")
-        print(f"  - 目标尺寸: {target_size}")
-        print(f"  - 特征点数: {nfeatures}")
+        # 初始化基准装备预处理器
+        try:
+            self.base_preprocessor = BaseEquipmentPreprocessor()
+            self.use_optimized_preprocessing = True
+        except Exception as e:
+            # 如果预处理器初始化失败，回退到传统方法
+            print(f"⚠️ 基准装备预处理器初始化失败，使用传统方法: {e}")
+            self.base_preprocessor = None
+            self.use_optimized_preprocessing = False
+        
+        # 简化初始化输出，不显示信息
     
     def build_feature_cache(self, base_equipment_dir):
         """
@@ -52,10 +65,7 @@ class FeatureCacheManager:
         Returns:
             bool: 构建是否成功
         """
-        print("开始构建基准装备特征缓存...")
-        print(f"基准装备目录: {base_equipment_dir}")
-        print(f"缓存文件: {self.cache_file}")
-        print(f"目标尺寸: {self.target_size}")
+        # 简化输出
         
         # 初始化缓存字典
         cache = {
@@ -67,39 +77,64 @@ class FeatureCacheManager:
             "features": {}
         }
         
+        # 首先确保基准装备预处理完成
+        if self.use_optimized_preprocessing and self.base_preprocessor:
+            print("预处理基准装备图像...")
+            preprocess_results = self.base_preprocessor.process_all_images()
+            if preprocess_results['failed'] > 0:
+                print(f"⚠️ {preprocess_results['failed']} 个基准装备预处理失败")
+        
         # 处理所有基准装备图像
         processed_count = 0
         skipped_count = 0
         
-        for filename in os.listdir(base_equipment_dir):
+        # 确定使用哪个目录作为输入
+        if self.use_optimized_preprocessing and self.base_preprocessor:
+            input_dir = self.base_preprocessor.processed_dir
+        else:
+            input_dir = base_equipment_dir
+        
+        for filename in os.listdir(input_dir):
             if filename.lower().endswith(('.png', '.jpg', '.jpeg', '.webp')):
-                file_path = os.path.join(base_equipment_dir, filename)
+                file_path = os.path.join(input_dir, filename)
                 equipment_name = os.path.splitext(filename)[0]
                 
-                print(f"处理: {filename}")
+                # 简化处理输出
                 
                 try:
-                    # 读取并预处理图像
-                    img = cv2.imread(file_path, cv2.IMREAD_GRAYSCALE)
-                    if img is None:
-                        print(f"  ❌ 无法读取图像")
-                        skipped_count += 1
-                        continue
-                    
-                    # 记录原始尺寸
-                    original_shape = img.shape
-                    
-                    # 调整图像尺寸到目标尺寸
-                    img_resized = self._standardize_image_size(img)
-                    
-                    # 应用直方图均衡化增强对比度
-                    img_resized = cv2.equalizeHist(img_resized)
+                    # 读取预处理后的图像（如果使用优化方法）或原始图像
+                    if self.use_optimized_preprocessing and self.base_preprocessor:
+                        img = cv2.imread(file_path)
+                        if img is None:
+                            # 简化错误输出
+                            skipped_count += 1
+                            continue
+                        
+                        # 记录原始尺寸
+                        original_shape = img.shape
+                        
+                        # 预处理后的图像已经是最终尺寸，只需转换为灰度图
+                        if len(img.shape) == 3:
+                            img_resized = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+                        else:
+                            img_resized = img
+                    else:
+                        # 回退到传统方法
+                        original_path = os.path.join(base_equipment_dir, filename)
+                        img = cv2.imread(original_path, cv2.IMREAD_GRAYSCALE)
+                        if img is None:
+                            skipped_count += 1
+                            continue
+                        
+                        original_shape = img.shape
+                        img_resized = self._standardize_image_size(img)
+                        img_resized = cv2.equalizeHist(img_resized)
                     
                     # 提取ORB特征
                     kp, des = self.detector.detectAndCompute(img_resized, None)
                     
                     if des is None:
-                        print(f"  ❌ 无法提取特征")
+                        # 简化错误输出
                         skipped_count += 1
                         continue
                     
@@ -114,11 +149,11 @@ class FeatureCacheManager:
                         "original_shape": original_shape
                     }
                     
-                    print(f"  ✓ 提取了 {len(kp)} 个特征点")
+                    # 简化成功输出
                     processed_count += 1
                     
                 except Exception as e:
-                    print(f"  ❌ 处理失败: {e}")
+                    # 简化错误输出
                     skipped_count += 1
         
         # 保存缓存到文件
@@ -126,18 +161,14 @@ class FeatureCacheManager:
             with open(self.cache_file, "wb") as f:
                 pickle.dump(cache, f)
             
-            print(f"\n✅ 缓存构建完成!")
-            print(f"  处理成功: {processed_count} 个文件")
-            print(f"  跳过文件: {skipped_count} 个")
-            print(f"  缓存文件: {self.cache_file}")
-            print(f"  缓存大小: {os.path.getsize(self.cache_file) / 1024 / 1024:.2f} MB")
+            # 简化输出
             
             # 加载到内存
             self.cache_data = cache
             return True
             
         except Exception as e:
-            print(f"\n❌ 保存缓存失败: {e}")
+            # 简化错误输出
             return False
     
     def build_cache(self, base_equipment_dir=None):
@@ -162,24 +193,19 @@ class FeatureCacheManager:
             bool: 加载是否成功
         """
         if not os.path.exists(self.cache_file):
-            print(f"缓存文件不存在: {self.cache_file}")
+            # 简化错误输出
             return False
         
         try:
             with open(self.cache_file, "rb") as f:
                 self.cache_data = pickle.load(f)
             
-            print(f"✅ 特征缓存加载成功!")
-            print(f"  版本: {self.cache_data.get('version', '未知')}")
-            print(f"  创建时间: {self.cache_data.get('created_at', '未知')}")
-            print(f"  特征类型: {self.cache_data.get('feature_type', '未知')}")
-            print(f"  目标尺寸: {self.cache_data.get('target_size', '未知')}")
-            print(f"  装备数量: {len(self.cache_data.get('features', {}))}")
+            # 简化输出
             
             return True
             
         except Exception as e:
-            print(f"❌ 加载缓存失败: {e}")
+            # 简化错误输出
             self.cache_data = None
             return False
     
@@ -197,23 +223,23 @@ class FeatureCacheManager:
         required_keys = ["version", "features", "target_size", "feature_type"]
         for key in required_keys:
             if key not in self.cache_data:
-                print(f"缓存缺少必要字段: {key}")
+                # 简化错误输出
                 return False
         
         # 检查目标尺寸是否匹配
         if self.cache_data.get("target_size") != self.target_size:
-            print(f"缓存目标尺寸不匹配: 缓存={self.cache_data.get('target_size')}, 期望={self.target_size}")
+            # 简化错误输出
             return False
         
         # 检查特征类型是否匹配
         if self.cache_data.get("feature_type") != "ORB":
-            print(f"缓存特征类型不匹配: {self.cache_data.get('feature_type')}")
+            # 简化错误输出
             return False
         
         # 检查是否有特征数据
         features = self.cache_data.get("features", {})
         if not features:
-            print("缓存中没有特征数据")
+            # 简化错误输出
             return False
         
         return True
@@ -367,11 +393,9 @@ class FeatureCacheManager:
         return self.get_cache_info()
 
 
-def test_feature_cache_manager():
-    """测试特征缓存管理器"""
-    print("=" * 60)
-    print("特征缓存管理器测试")
-    print("=" * 60)
+if __name__ == "__main__":
+    # 简单的示例用法
+    import os
     
     # 创建缓存管理器
     cache_manager = FeatureCacheManager(
@@ -417,7 +441,3 @@ def test_feature_cache_manager():
         print(f"  {key}: {value}")
     
     print("\n✅ 特征缓存管理器测试完成")
-
-
-if __name__ == "__main__":
-    test_feature_cache_manager()

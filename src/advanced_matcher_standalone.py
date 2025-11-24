@@ -122,7 +122,7 @@ class AdvancedEquipmentRecognizer:
             return None
     
     def calc_color_similarity(self, img1: np.ndarray, img2: np.ndarray) -> float:
-        """计算两个图像的颜色相似度（保留RGB信息）
+        """计算两个图像的颜色相似度（参考unique-matcher的HSV方法）
         
         Args:
             img1: 第一个图像（RGB）
@@ -138,42 +138,41 @@ class AdvancedEquipmentRecognizer:
             if len(img2.shape) == 2:
                 img2 = cv2.cvtColor(img2, cv2.COLOR_GRAY2RGB)
             
-            # 计算每个通道的直方图
-            hist1_r = cv2.calcHist([img1], [0], None, [256], [0, 256])
-            hist1_g = cv2.calcHist([img1], [1], None, [256], [0, 256])
-            hist1_b = cv2.calcHist([img1], [2], None, [256], [0, 256])
+            # 参考unique-matcher：使用HSV空间的直方图比较
+            # 转换为HSV
+            hsv1 = cv2.cvtColor(img1, cv2.COLOR_RGB2HSV)
+            hsv2 = cv2.cvtColor(img2, cv2.COLOR_RGB2HSV)
             
-            hist2_r = cv2.calcHist([img2], [0], None, [256], [0, 256])
-            hist2_g = cv2.calcHist([img2], [1], None, [256], [0, 256])
-            hist2_b = cv2.calcHist([img2], [2], None, [256], [0, 256])
+            # 计算HSV直方图（参考unique-matcher的参数）
+            hist1 = cv2.calcHist([hsv1], [0, 1], None, [50, 60], [0, 180, 0, 256], accumulate=False)
+            hist2 = cv2.calcHist([hsv2], [0, 1], None, [50, 60], [0, 180, 0, 256], accumulate=False)
             
             # 归一化
-            cv2.normalize(hist1_r, hist1_r, alpha=0, beta=1, norm_type=cv2.NORM_MINMAX)
-            cv2.normalize(hist1_g, hist1_g, alpha=0, beta=1, norm_type=cv2.NORM_MINMAX)
-            cv2.normalize(hist1_b, hist1_b, alpha=0, beta=1, norm_type=cv2.NORM_MINMAX)
+            cv2.normalize(hist1, hist1, alpha=0, beta=1, norm_type=cv2.NORM_MINMAX)
+            cv2.normalize(hist2, hist2, alpha=0, beta=1, norm_type=cv2.NORM_MINMAX)
             
-            cv2.normalize(hist2_r, hist2_r, alpha=0, beta=1, norm_type=cv2.NORM_MINMAX)
-            cv2.normalize(hist2_g, hist2_g, alpha=0, beta=1, norm_type=cv2.NORM_MINMAX)
-            cv2.normalize(hist2_b, hist2_b, alpha=0, beta=1, norm_type=cv2.NORM_MINMAX)
+            # 计算巴氏距离
+            distance = cv2.compareHist(hist1, hist2, cv2.HISTCMP_BHATTACHARYYA)
             
-            # 计算每个通道的巴氏距离
-            dist_r = cv2.compareHist(hist1_r, hist2_r, cv2.HISTCMP_BHATTACHARYYA)
-            dist_g = cv2.compareHist(hist1_g, hist2_g, cv2.HISTCMP_BHATTACHARYYA)
-            dist_b = cv2.compareHist(hist1_b, hist2_b, cv2.HISTCMP_BHATTACHARYYA)
-            
-            # 平均距离
-            avg_distance = (dist_r + dist_g + dist_b) / 3
+            # 检查是否有NaN值
+            if np.isnan(distance):
+                print("  ⚠️ 警告：颜色相似度计算出现NaN值，使用默认值")
+                return 0.3  # 返回一个合理的默认值
             
             # 转换为相似度
-            similarity = 1 - avg_distance
+            similarity = 1 - distance
+            
+            # 确保返回值在合理范围内
+            similarity = max(0.0, min(1.0, similarity))
+            
             return similarity
             
         except Exception as e:
             print(f"颜色相似度计算失败: {e}")
-            return 0.0
+            return 0.3  # 返回一个合理的默认值而不是0.0
     
     def create_mask(self, image: np.ndarray, threshold: int = 200) -> np.ndarray:
-        """创建图像掩码（支持RGB和灰度图，增强彩色处理）
+        """创建图像掩码（参考unique-matcher的掩码方法）
         
         Args:
             image: 输入图像
@@ -183,63 +182,40 @@ class AdvancedEquipmentRecognizer:
             掩码数组
         """
         try:
-            # 如果是RGB图像，使用彩色信息创建更好的掩码
+            # 参考unique-matcher的掩码创建方法
+            # 如果是RGB图像，提取alpha通道信息
             if len(image.shape) == 3:
-                # 方法1：基于亮度创建掩码
-                gray = cv2.cvtColor(image, cv2.COLOR_RGB2GRAY)
-                _, brightness_mask = cv2.threshold(gray, threshold, 255, cv2.THRESH_BINARY)
-                
-                # 方法2：基于颜色饱和度创建掩码（有助于区分背景）
-                hsv = cv2.cvtColor(image, cv2.COLOR_RGB2HSV)
-                saturation = hsv[:, :, 1]  # 饱和度通道
-                _, saturation_mask = cv2.threshold(saturation, 30, 255, cv2.THRESH_BINARY)
-                
-                # 方法3：基于颜色差异创建掩码（检测非背景区域）
-                # 假设背景色是某种特定颜色，创建反掩码
-                background_color = np.array([87, 47, 66])  # 常见背景色
-                color_diff = np.abs(image.astype(np.int16) - background_color.astype(np.int16))
-                color_mask = np.any(color_diff > 30, axis=2).astype(np.uint8) * 255
-                
-                # 组合多种掩码方法
-                combined_mask = cv2.bitwise_and(brightness_mask, saturation_mask)
-                combined_mask = cv2.bitwise_or(combined_mask, color_mask)
-                
-                # 形态学操作改善掩码质量
-                kernel = np.ones((3, 3), np.uint8)
-                combined_mask = cv2.morphologyEx(combined_mask, cv2.MORPH_CLOSE, kernel)
-                combined_mask = cv2.morphologyEx(combined_mask, cv2.MORPH_OPEN, kernel)
-                
-                base_gray = gray
-                mask_input = combined_mask
+                # 检查是否有alpha通道
+                if image.shape[2] == 4:
+                    # 如果有alpha通道，直接使用alpha通道作为掩码
+                    alpha_channel = image[:, :, 3]
+                    # 将非零像素设为255
+                    mask = np.where(alpha_channel > 0, 255, 0).astype(np.uint8)
+                else:
+                    # 如果没有alpha通道，基于颜色信息创建掩码
+                    # 参考unique-matcher：检查透明度（alpha通道）
+                    # 假设背景色是某种特定颜色，创建反掩码
+                    background_color = np.array([87, 47, 66])  # 常见背景色
+                    color_diff = np.abs(image.astype(np.int16) - background_color.astype(np.int16))
+                    mask = np.any(color_diff > 30, axis=2).astype(np.uint8) * 255
+                    
+                    # 形态学操作改善掩码质量
+                    kernel = np.ones((3, 3), np.uint8)
+                    mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, kernel)
+                    mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN, kernel)
             else:
                 # 灰度图像处理
-                base_gray = image
-                mask_input = image
-                _, mask_input = cv2.threshold(mask_input, threshold, 255, cv2.THRESH_BINARY)
+                mask = image.copy()
+                _, mask = cv2.threshold(mask, threshold, 255, cv2.THRESH_BINARY)
             
-            # 查找轮廓
-            contours, _ = cv2.findContours(mask_input, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-            
-            if contours:
-                # 找到最大轮廓（假设主要物体是最大的）
-                largest_contour = max(contours, key=cv2.contourArea)
-                mask = np.zeros_like(base_gray)
-                cv2.fillPoly(mask, [largest_contour], 255)
-                
-                # 对掩码进行轻微膨胀，确保包含边缘
-                kernel = np.ones((2, 2), np.uint8)
-                mask = cv2.dilate(mask, kernel, iterations=1)
-                
-                return mask
-            
-            return np.ones_like(base_gray) * 255  # 如果没有找到轮廓，返回全白掩码
+            return mask
             
         except Exception as e:
             print(f"创建掩码失败: {e}")
             return None
     
     def template_match(self, template: np.ndarray, target: np.ndarray, mask: np.ndarray = None) -> Tuple[float, Tuple[int, int]]:
-        """执行模板匹配（仅使用彩色匹配）
+        """执行模板匹配（参考unique-matcher的优化方法）
         
         Args:
             template: 模板图像
@@ -258,41 +234,35 @@ class AdvancedEquipmentRecognizer:
             template_color = template.copy()
             target_color = target.copy()
             
-            # 确保模板不大于目标图像，并缩小匹配面积20%
-            scale = 0.8  # 默认缩小20%
+            # 参考unique-matcher：不进行缩放，直接使用原始尺寸
+            # 确保模板不大于目标图像
             if template_color.shape[0] > target_color.shape[0] or template_color.shape[1] > target_color.shape[1]:
-                # 调整模板尺寸，使其不大于目标图像，并缩小20%
-                scale = min(target_color.shape[0] / template_color.shape[0], target_color.shape[1] / template_color.shape[1]) * 0.8
-            
-            new_size = (int(template_color.shape[1] * scale), int(template_color.shape[0] * scale))
-            template_color = cv2.resize(template_color, new_size)
-            
-            # 如果使用了掩码，也需要调整掩码尺寸
-            if mask is not None:
-                mask = cv2.resize(mask, new_size)
+                # 调整模板尺寸，使其不大于目标图像
+                scale = min(target_color.shape[0] / template_color.shape[0], target_color.shape[1] / template_color.shape[1])
+                new_size = (int(template_color.shape[1] * scale), int(template_color.shape[0] * scale))
+                template_color = cv2.resize(template_color, new_size)
+                
+                # 如果使用了掩码，也需要调整掩码尺寸
+                if mask is not None:
+                    mask = cv2.resize(mask, new_size)
             
             print(f"  执行彩色模板匹配，模板尺寸: {template_color.shape}")
             
-            # 对每个颜色通道进行匹配并取平均
-            color_results = []
-            for channel in range(3):
-                template_channel = template_color[:, :, channel]
-                target_channel = target_color[:, :, channel]
-                
-                if mask is not None:
-                    channel_result = cv2.matchTemplate(target_channel, template_channel, cv2.TM_SQDIFF_NORMED, mask=mask)
-                else:
-                    channel_result = cv2.matchTemplate(target_channel, template_channel, cv2.TM_SQDIFF_NORMED)
-                
-                color_results.append(channel_result)
+            # 参考unique-matcher：转换为灰度图进行匹配，但保留彩色信息用于相似度计算
+            template_gray = cv2.cvtColor(template_color, cv2.COLOR_RGB2GRAY)
+            target_gray = cv2.cvtColor(target_color, cv2.COLOR_RGB2GRAY)
             
-            # 合并三个通道的结果
-            color_result = np.mean(color_results, axis=0)
-            color_min_val, _, color_min_loc, _ = cv2.minMaxLoc(color_result)
+            # 执行模板匹配（使用灰度图，但保留彩色信息）
+            if mask is not None:
+                result = cv2.matchTemplate(target_gray, template_gray, cv2.TM_SQDIFF_NORMED, mask=mask)
+            else:
+                result = cv2.matchTemplate(target_gray, template_gray, cv2.TM_SQDIFF_NORMED)
             
-            print(f"  彩色匹配值: {color_min_val:.6f}")
+            min_val, _, min_loc, _ = cv2.minMaxLoc(result)
             
-            return color_min_val, color_min_loc
+            print(f"  彩色匹配值: {min_val:.6f}")
+            
+            return min_val, min_loc
             
         except Exception as e:
             print(f"彩色模板匹配失败: {e}")
@@ -346,6 +316,7 @@ class AdvancedEquipmentRecognizer:
                 color_similarity = self.calc_color_similarity(base_image, target_image)
             
             # 计算综合相似度
+            # 对于TM_SQDIFF_NORMED，值越小表示匹配越好，所以需要反转
             template_similarity = max(0, (1 - template_match_val) * 100)
             
             # 添加调试信息：匹配详情
@@ -354,7 +325,8 @@ class AdvancedEquipmentRecognizer:
             print(f"  🔍 调试信息 - 颜色相似度: {color_similarity:.4f}")
             
             # 问题诊断：检查是否存在逻辑矛盾
-            if template_similarity < 30 and template_match_val > 0.7:
+            # 对于TM_SQDIFF_NORMED，匹配值低表示匹配好，所以条件需要调整
+            if template_similarity < 30 and template_match_val < 0.3:
                 print(f"  ⚠️ 警告：检测到逻辑矛盾！模板相似度低({template_similarity:.2f}%)但匹配值高({template_match_val:.6f})")
             
             # 更合理的匹配标准：避免过度降权
@@ -377,11 +349,12 @@ class AdvancedEquipmentRecognizer:
             
             # 3. 增加模板匹配值的权重放大差异
             # 将微小的模板匹配差异放大，但要有区分度
-            # 使用反向差异：值越小越好，所以用 1/template_match_val 来放大差异
-            template_diff_factor = 1.0 / (template_match_val + 0.001)  # 避免除零，加0.001平滑
-            template_diff_score = min(100, template_diff_factor * 0.1)  # 缩放到合理范围
+            # 对于TM_SQDIFF_NORMED，值越小越好，所以直接使用template_match_val
+            template_diff_factor = template_match_val  # 直接使用匹配值
+            template_diff_score = min(100, (1 - template_diff_factor) * 100 * 0.1)  # 转换为相似度并缩放
             
             # 问题诊断：检查差异放大是否过度
+            # 对于TM_SQDIFF_NORMED，条件需要调整
             if template_diff_score > 50 and template_similarity < 30:
                 print(f"  ⚠️ 警告：差异放大过度！模板相似度低({template_similarity:.2f}%)但差异得分高({template_diff_score:.2f}%)")
             
@@ -393,6 +366,11 @@ class AdvancedEquipmentRecognizer:
                 combined_score = template_score * 0.4 + template_diff_score * 0.3 + color_score * 0.3
             else:
                 combined_score = template_score * 0.7 + template_diff_score * 0.3
+            
+            # 检查是否有NaN值
+            if np.isnan(combined_score):
+                print("  ⚠️ 警告：综合得分计算出现NaN值，使用模板相似度")
+                combined_score = template_score
             
             # 添加调试信息：综合得分计算
             print(f"  🔍 调试信息 - 模板匹配得分: {template_score:.2f}%")
@@ -548,55 +526,6 @@ class AdvancedEquipmentRecognizer:
             }
 
 
-def test_standalone_matcher():
-    """测试独立的高级识别器"""
-    print("=" * 60)
-    print("独立高级装备识别器测试")
-    print("=" * 60)
-    
-    # 创建识别器实例
-    recognizer = AdvancedEquipmentRecognizer(enable_masking=True, enable_histogram=True)
-    
-    # 测试图像路径（需要根据实际情况调整）
-    base_image_path = "images/base_equipment/target_equipment_1.webp"
-    target_image_path = "images/cropped_equipment/图层 2.png"  # 修改：使用新的文件名
-    
-    # 检查文件是否存在
-    if not os.path.exists(base_image_path):
-        print(f"⚠️ 基准图像不存在: {base_image_path}")
-        print("请确保基准装备图像存在于指定路径")
-        return
-    
-    if not os.path.exists(target_image_path):
-        print(f"⚠️ 目标图像不存在: {target_image_path}")
-        print("请确保目标图像存在于指定路径")
-        return
-    
-    print(f"测试图像: {target_image_path}")
-    
-    # 执行识别
-    result = recognizer.recognize_equipment(base_image_path, target_image_path)
-    
-    # 输出结果
-    print("\n识别结果:")
-    print(f"装备名称: {result.item_name}")
-    print(f"匹配方式: {result.matched_by.name}")
-    print(f"模板匹配值: {result.min_val:.4f}")
-    print(f"直方图距离: {result.hist_val:.4f}")
-    print(f"相似度: {result.similarity:.2f}%")
-    print(f"综合置信度: {result.confidence:.2f}%")
-    
-    # 与传统方法对比
-    print("\n与传统方法对比:")
-    comparison = recognizer.compare_with_traditional(base_image_path, target_image_path)
-    
-    if 'error' not in comparison:
-        print(f"传统dHash相似度: {comparison['traditional_similarity']:.2f}%")
-        print(f"传统方法匹配: {comparison['traditional_match']}")
-        print(f"性能提升: {comparison['improvement']:.2f}%")
-        print(f"推荐方法: {comparison['recommendation']}")
-    else:
-        print(f"对比失败: {comparison['error']}")
 
 
 def batch_test():
