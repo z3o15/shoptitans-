@@ -62,11 +62,12 @@ class FeatureEquipmentRecognizer:
         # 初始化特征检测器
         self.detector = self._create_detector()
         
-        print(f"✓ 特征匹配识别器初始化完成")
-        print(f"  - 特征算法: {feature_type.value}")
-        print(f"  - 最少匹配数: {min_match_count}")
-        print(f"  - 匹配比例阈值: {match_ratio_threshold}")
-        print(f"  - 最小单应性内点: {min_homography_inliers}")
+        # 减少初始化时的详细输出，只在调试模式下显示
+        # print(f"✓ 特征匹配识别器初始化完成")
+        # print(f"  - 特征算法: {feature_type.value}")
+        # print(f"  - 最少匹配数: {min_match_count}")
+        # print(f"  - 匹配比例阈值: {match_ratio_threshold}")
+        # print(f"  - 最小单应性内点: {min_homography_inliers}")
     
     def _create_detector(self):
         """创建特征检测器"""
@@ -125,7 +126,8 @@ class FeatureEquipmentRecognizer:
             return enhanced
             
         except Exception as e:
-            print(f"图像预处理失败 {image_path}: {e}")
+            # 减少错误输出的详细程度
+            # print(f"图像预处理失败 {image_path}: {e}")
             return None
     
     def extract_features(self, image: np.ndarray) -> Tuple[List, np.ndarray]:
@@ -141,7 +143,8 @@ class FeatureEquipmentRecognizer:
             keypoints, descriptors = self.detector.detectAndCompute(image, None)
             return keypoints, descriptors
         except Exception as e:
-            print(f"特征提取失败: {e}")
+            # 减少错误输出的详细程度
+            # print(f"特征提取失败: {e}")
             return [], None
     
     def match_features(self, desc1: np.ndarray, desc2: np.ndarray) -> List:
@@ -196,7 +199,8 @@ class FeatureEquipmentRecognizer:
             return good_matches
             
         except Exception as e:
-            print(f"特征匹配失败: {e}")
+            # 减少错误输出的详细程度
+            # print(f"特征匹配失败: {e}")
             return []
     
     def verify_homography(self, kp1: List, kp2: List, matches: List) -> Tuple[int, bool]:
@@ -230,7 +234,8 @@ class FeatureEquipmentRecognizer:
             return int(inlier_count), inlier_count >= self.min_homography_inliers
             
         except Exception as e:
-            print(f"单应性验证失败: {e}")
+            # 减少错误输出的详细程度
+            # print(f"单应性验证失败: {e}")
             return 0, False
     
     def calculate_confidence(self, match_count: int, good_match_count: int, 
@@ -275,7 +280,8 @@ class FeatureEquipmentRecognizer:
             特征匹配结果
         """
         try:
-            print(f"开始特征匹配: {base_image_path} vs {target_image_path}")
+            # 减少处理过程中的详细输出
+            # print(f"开始特征匹配: {base_image_path} vs {target_image_path}")
             
             # 预处理图像
             base_image = self.preprocess_image(base_image_path)
@@ -294,18 +300,21 @@ class FeatureEquipmentRecognizer:
                     is_valid_match=False
                 )
             
-            print(f"  基准图像尺寸: {base_image.shape}")
-            print(f"  目标图像尺寸: {target_image.shape}")
+            # 减少处理过程中的详细输出
+            # print(f"  基准图像尺寸: {base_image.shape}")
+            # print(f"  目标图像尺寸: {target_image.shape}")
             
             # 提取特征
             kp1, desc1 = self.extract_features(base_image)
             kp2, desc2 = self.extract_features(target_image)
             
-            print(f"  基准图像特征点: {len(kp1)}")
-            print(f"  目标图像特征点: {len(kp2)}")
+            # 减少处理过程中的详细输出
+            # print(f"  基准图像特征点: {len(kp1)}")
+            # print(f"  目标图像特征点: {len(kp2)}")
             
             if desc1 is None or desc2 is None or len(kp1) < 10 or len(kp2) < 10:
-                print("  ❌ 特征点不足，无法进行有效匹配")
+                # 减少处理过程中的详细输出
+                # print("  ❌ 特征点不足，无法进行有效匹配")
                 return FeatureMatchResult(
                     item_name=Path(target_image_path).stem,
                     item_base=Path(base_image_path).stem,
@@ -322,10 +331,12 @@ class FeatureEquipmentRecognizer:
             matches = self.match_features(desc1, desc2)
             match_count = len(matches)
             
-            print(f"  初步匹配数量: {match_count}")
+            # 减少处理过程中的详细输出
+            # print(f"  初步匹配数量: {match_count}")
             
             if match_count < self.min_match_count:
-                print(f"  ❌ 匹配数量不足（最少需要{self.min_match_count}个）")
+                # 减少处理过程中的详细输出
+                # print(f"  ❌ 匹配数量不足（最少需要{self.min_match_count}个）")
                 return FeatureMatchResult(
                     item_name=Path(target_image_path).stem,
                     item_base=Path(base_image_path).stem,
@@ -341,8 +352,9 @@ class FeatureEquipmentRecognizer:
             # 验证单应性
             homography_inliers, is_valid = self.verify_homography(kp1, kp2, matches)
             
-            print(f"  单应性内点: {homography_inliers}")
-            print(f"  几何一致性: {'✓ 有效' if is_valid else '❌ 无效'}")
+            # 减少处理过程中的详细输出
+            # print(f"  单应性内点: {homography_inliers}")
+            # print(f"  几何一致性: {'✓ 有效' if is_valid else '❌ 无效'}")
             
             # 计算置信度
             confidence = self.calculate_confidence(match_count, match_count, homography_inliers)
@@ -350,8 +362,9 @@ class FeatureEquipmentRecognizer:
             # 计算匹配比例
             match_ratio = match_count / max(len(kp1), len(kp2))
             
-            print(f"  匹配比例: {match_ratio:.4f}")
-            print(f"  置信度: {confidence:.2f}%")
+            # 减少处理过程中的详细输出
+            # print(f"  匹配比例: {match_ratio:.4f}")
+            # print(f"  置信度: {confidence:.2f}%")
             
             # 创建结果
             result = FeatureMatchResult(
@@ -366,12 +379,14 @@ class FeatureEquipmentRecognizer:
                 is_valid_match=is_valid and confidence >= 60  # 60%置信度阈值
             )
             
-            print(f"识别完成: {result.item_name}, 置信度: {result.confidence:.2f}%, 有效匹配: {result.is_valid_match}")
+            # 减少处理过程中的详细输出
+            # print(f"识别完成: {result.item_name}, 置信度: {result.confidence:.2f}%, 有效匹配: {result.is_valid_match}")
             
             return result
             
         except Exception as e:
-            print(f"特征匹配识别失败: {e}")
+            # 减少错误输出的详细程度
+            # print(f"特征匹配识别失败: {e}")
             return FeatureMatchResult(
                 item_name=Path(target_image_path).stem,
                 item_base=Path(base_image_path).stem,
@@ -404,7 +419,8 @@ class FeatureEquipmentRecognizer:
             for ext in ['*.png', '*.jpg', '*.jpeg', '*.webp']:
                 target_files.extend(Path(target_folder).glob(ext))
             
-            print(f"找到 {len(target_files)} 个目标图像进行批量特征识别")
+            # 减少处理过程中的详细输出
+            # print(f"找到 {len(target_files)} 个目标图像进行批量特征识别")
             
             # 对每个目标图像进行识别
             for target_file in target_files:
@@ -415,20 +431,23 @@ class FeatureEquipmentRecognizer:
             # 按置信度排序
             results.sort(key=lambda x: x.confidence, reverse=True)
             
-            print(f"批量特征识别完成，{len(results)} 个结果超过阈值 {threshold}%")
+            # 减少处理过程中的详细输出
+            # print(f"批量特征识别完成，{len(results)} 个结果超过阈值 {threshold}%")
             
             return results
             
         except Exception as e:
-            print(f"批量特征识别失败: {e}")
+            # 减少错误输出的详细程度
+            # print(f"批量特征识别失败: {e}")
             return []
 
 
-def test_feature_matcher():
-    """测试特征匹配器"""
-    print("=" * 60)
-    print("特征匹配器测试")
-    print("=" * 60)
+# 为了向后兼容，创建别名
+FeatureEquipmentMatcher = FeatureEquipmentRecognizer
+
+if __name__ == "__main__":
+    # 简单的示例用法
+    import os
     
     # 创建识别器实例
     recognizer = FeatureEquipmentRecognizer(
@@ -445,11 +464,11 @@ def test_feature_matcher():
     # 检查文件是否存在
     if not os.path.exists(base_image_path):
         print(f"⚠️ 基准图像不存在: {base_image_path}")
-        return
+        exit(1)
     
     if not os.path.exists(target_image_path):
         print(f"⚠️ 目标图像不存在: {target_image_path}")
-        return
+        exit(1)
     
     # 执行识别
     result = recognizer.recognize_equipment(base_image_path, target_image_path)
@@ -463,10 +482,3 @@ def test_feature_matcher():
     print(f"置信度: {result.confidence:.2f}%")
     print(f"有效匹配: {result.is_valid_match}")
     print(f"使用算法: {result.algorithm_used}")
-
-
-# 为了向后兼容，创建别名
-FeatureEquipmentMatcher = FeatureEquipmentRecognizer
-
-if __name__ == "__main__":
-    test_feature_matcher()

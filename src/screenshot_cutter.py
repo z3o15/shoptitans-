@@ -40,8 +40,8 @@ class ScreenshotCutter:
             outline='red', width=3
         )
         
-        # 创建真正的圆形图像（带透明背景）
-        circle_img = Image.new('RGBA', (circle_size, circle_size), (0, 0, 0, 0))
+        # 创建圆形图像（黑色背景，用于JPG格式）
+        circle_img_rgb = Image.new('RGB', (circle_size, circle_size), (0, 0, 0))
         
         # 计算圆形区域的边界
         left = max(0, center_x - radius)
@@ -56,8 +56,9 @@ class ScreenshotCutter:
         paste_x = (circle_size - (right - left)) // 2
         paste_y = (circle_size - (bottom - top)) // 2
         
-        # 将切割的区域粘贴到新图像上
-        circle_img.paste(crop_region, (paste_x, paste_y))
+        # 创建临时RGBA图像用于圆形处理
+        circle_img_rgba = Image.new('RGBA', (circle_size, circle_size), (0, 0, 0, 0))
+        circle_img_rgba.paste(crop_region, (paste_x, paste_y))
         
         # 创建圆形遮罩
         mask = Image.new('L', (circle_size, circle_size), 0)
@@ -65,7 +66,28 @@ class ScreenshotCutter:
         mask_draw.ellipse([(0, 0), (circle_size, circle_size)], fill=255)
         
         # 应用遮罩，使圆形外部透明
-        circle_img.putalpha(mask)
+        circle_img_rgba.putalpha(mask)
+        
+        # 将RGBA图像合成到RGB背景上
+        circle_img_rgb.paste(circle_img_rgba, (0, 0), circle_img_rgba)
+        
+        # 将右下角28*60像素区域设置为黑色（避免影响后续匹配）
+        draw = ImageDraw.Draw(circle_img_rgb)
+        # 从右下角开始计算位置
+        right_x = circle_size - 1  # 最右边的像素
+        bottom_y = circle_size - 1  # 最下边的像素
+        left_x = right_x - 28 + 1  # 左边界
+        top_y = bottom_y - 60 + 1  # 上边界
+        
+        # 确保坐标在有效范围内
+        left_x = max(0, left_x)
+        top_y = max(0, top_y)
+        
+        # 绘制黑色矩形覆盖右下角区域
+        draw.rectangle([(left_x, top_y), (right_x, bottom_y)], fill=(0, 0, 0))
+        
+        # 使用RGB图像作为最终结果
+        circle_img = circle_img_rgb
         
         return img_with_circle, circle_img
     
@@ -129,44 +151,63 @@ class ScreenshotCutter:
                             
                             # 如果指定了标记副本目录，先保存第一次处理的图片（带圆形标记）
                             if marker_output_folder:
-                                marker_path = os.path.join(marker_output_folder, f"item_{row}_{col}.png")
-                                img_with_circle.save(marker_path)
-                                print(f"✓ 已保存装备 {row+1}-{col+1}（第一次处理，带圆形标记）")
+                                marker_path = os.path.join(marker_output_folder, f"item_{row}_{col}.jpg")
+                                # 确保图像是RGB模式，不是RGBA
+                                if img_with_circle.mode == 'RGBA':
+                                    rgb_img = Image.new('RGB', img_with_circle.size, (255, 255, 255))
+                                    rgb_img.paste(img_with_circle, mask=img_with_circle.split()[-1])
+                                    rgb_img.save(marker_path, format='JPEG', quality=95)
+                                else:
+                                    img_with_circle.save(marker_path, format='JPEG', quality=95)
                             
                             # 根据参数决定保存内容到主目录
                             if save_original:
                                 # 保存带圆形标记的原图到主目录（第二次处理）
-                                crop_path = os.path.join(output_folder, f"item_{row}_{col}.png")
-                                img_with_circle.save(crop_path)
-                                print(f"✓ 已保存装备 {row+1}-{col+1}（第二次处理，带圆形标记）")
+                                crop_path = os.path.join(output_folder, f"item_{row}_{col}.jpg")
+                                # 确保图像是RGB模式，不是RGBA
+                                if img_with_circle.mode == 'RGBA':
+                                    rgb_img = Image.new('RGB', img_with_circle.size, (255, 255, 255))
+                                    rgb_img.paste(img_with_circle, mask=img_with_circle.split()[-1])
+                                    rgb_img.save(crop_path, format='JPEG', quality=95)
+                                else:
+                                    img_with_circle.save(crop_path, format='JPEG', quality=95)
                             
-                            # 保存圆形区域
-                            circle_path = os.path.join(output_folder, f"item_{row}_{col}_circle.png")
-                            circle_region.save(circle_path)
-                            print(f"✓ 已保存装备 {row+1}-{col+1} 的圆形区域")
+                            # 保存圆形区域为JPG格式
+                            circle_path = os.path.join(output_folder, f"item_{row}_{col}_circle.jpg")
+                            # 确保图像是RGB模式，不是RGBA
+                            if circle_region.mode == 'RGBA':
+                                rgb_img = Image.new('RGB', circle_region.size, (255, 255, 255))
+                                rgb_img.paste(circle_region, mask=circle_region.split()[-1])
+                                rgb_img.save(circle_path, format='JPEG', quality=95)
+                            else:
+                                circle_region.save(circle_path, format='JPEG', quality=95)
                             
                             # 注意：marker目录不保存圆形区域文件，只保存完整的带圆形标记的图片
                         else:
                             # 只保存原图
-                            crop_path = os.path.join(output_folder, f"item_{row}_{col}.png")
-                            crop_img.save(crop_path)
-                            print(f"✓ 已保存装备 {row+1}-{col+1}")
+                            crop_path = os.path.join(output_folder, f"item_{row}_{col}.jpg")
+                            # 确保图像是RGB模式，不是RGBA
+                            if crop_img.mode == 'RGBA':
+                                rgb_img = Image.new('RGB', crop_img.size, (255, 255, 255))
+                                rgb_img.paste(crop_img, mask=crop_img.split()[-1])
+                                rgb_img.save(crop_path, format='JPEG', quality=95)
+                            else:
+                                crop_img.save(crop_path, format='JPEG', quality=95)
                             
                             # 如果指定了标记副本目录，也保存一份到该目录
                             if marker_output_folder:
-                                marker_path = os.path.join(marker_output_folder, f"item_{row}_{col}.png")
-                                crop_img.save(marker_path)
-                                print(f"✓ 已保存装备 {row+1}-{col+1}（副本）")
+                                marker_path = os.path.join(marker_output_dir, f"item_{row}_{col}.jpg")
+                                # 确保图像是RGB模式，不是RGBA
+                                if crop_img.mode == 'RGBA':
+                                    rgb_img = Image.new('RGB', crop_img.size, (255, 255, 255))
+                                    rgb_img.paste(crop_img, mask=crop_img.split()[-1])
+                                    rgb_img.save(marker_path, format='JPEG', quality=95)
+                                else:
+                                    crop_img.save(marker_path, format='JPEG', quality=95)
                         
                         count += 1
                 
-                if draw_circle:
-                    if save_original:
-                        print(f"成功切割 {count}/{total_items} 个装备到 {output_folder}（包含原图和圆形区域）")
-                    else:
-                        print(f"成功切割 {count}/{total_items} 个装备到 {output_folder}（仅圆形区域）")
-                else:
-                    print(f"成功切割 {count}/{total_items} 个装备到 {output_folder}")
+                # 移除详细输出，只返回结果
                 return True
                 
         except Exception as e:

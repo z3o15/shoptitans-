@@ -7,6 +7,7 @@
 
 import os
 import re
+import sys
 import time
 import cv2
 import numpy as np
@@ -412,21 +413,8 @@ class EnhancedOCRRecognizer:
         grayscale_enabled = config.get("grayscale", False)
         self.logger.debug(f"配置中的灰度化设置: {grayscale_enabled}")
         
-        # 关闭图像灰度化 - 注释掉灰度化处理
-        # if config.get("grayscale", False):
-        #     processed_image = cv2.cvtColor(processed_image, cv2.COLOR_BGR2GRAY)
-        #     self.logger.debug("已应用灰度化处理")
-        # else:
-        #     self.logger.debug("未应用灰度化处理")
-        
-        # 临时禁用自适应二值化 - 注释掉以测试
-        # if config.get("threshold", False):
-        #     if len(processed_image.shape) == 3:
-        #         processed_image = cv2.cvtColor(processed_image, cv2.COLOR_BGR2GRAY)
-        #     processed_image = cv2.adaptiveThreshold(
-        #         processed_image, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C,
-        #         cv2.THRESH_BINARY, 11, 2
-        #     )
+        # 灰度化处理已禁用，直接使用原始图像
+        # 二值化处理已禁用，直接使用原始图像
         
         if config.get("denoise", False):
             processed_image = cv2.medianBlur(processed_image, 3)
@@ -1083,7 +1071,7 @@ if __name__ == "__main__":
             
             if not subdirs:
                 print("❌ 未找到切割装备目录")
-                sys.exit(1)
+                return
             
             latest_dir = sorted(subdirs)[-1]
             equipment_folder = os.path.join(cropped_equipment_dir, latest_dir)

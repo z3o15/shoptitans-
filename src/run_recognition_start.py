@@ -11,25 +11,25 @@ import subprocess
 from datetime import datetime
 import shutil
 
-# 导入节点日志管理器
+# 导入统一日志管理器
 try:
-    from src.node_logger import get_logger, init_logger_from_config
+    from src.unified_logger import get_unified_logger, init_unified_logger_from_config
     from src.config_manager import get_config_manager
-    NODE_LOGGER_AVAILABLE = True
+    UNIFIED_LOGGER_AVAILABLE = True
 except ImportError:
     try:
-        from node_logger import get_logger, init_logger_from_config
+        from unified_logger import get_unified_logger, init_unified_logger_from_config
         from config_manager import get_config_manager
-        NODE_LOGGER_AVAILABLE = True
+        UNIFIED_LOGGER_AVAILABLE = True
     except ImportError:
-        NODE_LOGGER_AVAILABLE = False
-        print("⚠️ 节点日志管理器不可用，使用默认输出")
+        UNIFIED_LOGGER_AVAILABLE = False
+        print("⚠️ 统一日志管理器不可用，使用默认输出")
 
 def check_dependencies():
     """检查依赖是否已安装"""
-    if NODE_LOGGER_AVAILABLE:
-        logger = get_logger()
-        logger.start_node("系统依赖检查", "🔍")
+    if UNIFIED_LOGGER_AVAILABLE:
+        logger = get_unified_logger()
+        logger.start_step("step1_helper", "系统依赖检查")
     else:
         print("检查系统依赖...")
     
@@ -44,19 +44,19 @@ def check_dependencies():
                 from PIL import Image
             elif package == 'numpy':
                 import numpy
-            if NODE_LOGGER_AVAILABLE:
+            if UNIFIED_LOGGER_AVAILABLE:
                 logger.log_success(f"{package}")
             else:
                 print(f"✓ {package}")
         except ImportError:
             missing_packages.append(package)
-            if NODE_LOGGER_AVAILABLE:
+            if UNIFIED_LOGGER_AVAILABLE:
                 logger.log_error(f"{package}")
             else:
                 print(f"✗ {package}")
     
     if missing_packages:
-        if NODE_LOGGER_AVAILABLE:
+        if UNIFIED_LOGGER_AVAILABLE:
             logger.log_info(f"缺少依赖包: {', '.join(missing_packages)}")
             logger.log_info("正在安装依赖...")
         else:
@@ -67,21 +67,21 @@ def check_dependencies():
             subprocess.check_call([sys.executable, "-m", "pip", "install", "-r", "requirements.txt"])
             if NODE_LOGGER_AVAILABLE:
                 logger.log_success("依赖安装完成")
-                logger.end_node("✅")
+                logger.end_step("step1_helper", "完成")
             else:
                 print("✓ 依赖安装完成")
             return True
         except subprocess.CalledProcessError:
-            if NODE_LOGGER_AVAILABLE:
+            if UNIFIED_LOGGER_AVAILABLE:
                 logger.log_error("依赖安装失败，请手动运行: pip install -r requirements.txt")
-                logger.end_node("❌")
+                logger.end_step("step1_helper", "失败")
             else:
                 print("✗ 依赖安装失败，请手动运行: pip install -r requirements.txt")
             return False
     else:
-        if NODE_LOGGER_AVAILABLE:
+        if UNIFIED_LOGGER_AVAILABLE:
             logger.log_success("所有依赖已安装")
-            logger.end_node("✅")
+            logger.end_step("step1_helper", "完成")
         else:
             print("✓ 所有依赖已安装")
         return True

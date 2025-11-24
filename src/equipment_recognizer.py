@@ -231,28 +231,9 @@ class EnhancedEquipmentRecognizer:
                     target_size=target_size,
                     nfeatures=nfeatures
                 )
-                print(f"✓ 增强特征匹配装备识别器已启用（缓存：{'启用' if use_cache else '禁用'}）")
-                
-                # 初始化自动缓存更新器
-                if use_cache and auto_update_cache:
-                    try:
-                        from .cache.auto_cache_updater import AutoCacheUpdater
-                        self.auto_cache_updater = AutoCacheUpdater(
-                            cache_dir=cache_dir,
-                            target_size=target_size,
-                            nfeatures=nfeatures,
-                            auto_update=True
-                        )
-                        
-                        # 检查是否需要自动更新缓存
-                        self._check_and_update_cache()
-                        
-                    except Exception as e:
-                        print(f"⚠️ 自动缓存更新器初始化失败: {e}")
-                        self.auto_cache_updater = None
                 
             except Exception as e:
-                print(f"❌ 增强特征识别器初始化失败: {e}")
+                print(f"❌ 增强特征识别器初始化失败")
                 raise RuntimeError("增强特征识别器初始化失败")
         elif algorithm_type == "advanced" and ADVANCED_MATCHER_AVAILABLE:
             try:
@@ -260,9 +241,8 @@ class EnhancedEquipmentRecognizer:
                     enable_masking=enable_masking,
                     enable_histogram=enable_histogram
                 )
-                print(f"✓ 高级彩色装备识别器已启用")
             except Exception as e:
-                print(f"❌ 高级识别器初始化失败: {e}")
+                print(f"❌ 高级识别器初始化失败")
                 raise RuntimeError("高级识别器初始化失败")
         elif algorithm_type == "feature" and FEATURE_MATCHER_AVAILABLE:
             try:
@@ -274,12 +254,11 @@ class EnhancedEquipmentRecognizer:
                     match_ratio_threshold=match_ratio_threshold,
                     min_homography_inliers=max(6, min_match_count // 2)
                 )
-                print(f"✓ 特征匹配装备识别器已启用")
             except Exception as e:
-                print(f"❌ 特征识别器初始化失败: {e}")
+                print(f"❌ 特征识别器初始化失败")
                 raise RuntimeError("特征识别器初始化失败")
         elif algorithm_type == "traditional":
-            print(f"✓ 传统dHash算法已启用")
+            pass  # 简化输出
         else:
             if algorithm_type == "enhanced_feature" and not ENHANCED_FEATURE_MATCHER_AVAILABLE:
                 raise RuntimeError("增强特征匹配器不可用")
@@ -293,33 +272,31 @@ class EnhancedEquipmentRecognizer:
         # 添加get_dhash方法（如果可用）
         if get_dhash is not None:
             self.get_dhash = get_dhash
-            print(f"  - dHash功能: 已启用")
         else:
-            print(f"  - dHash功能: 不可用（缺少图像哈希工具）")
-        
-        print(f"✓ 增强版装备识别器初始化完成")
-        print(f"  - 当前算法: {self._get_algorithm_name()}")
-        print(f"  - 默认阈值: {default_threshold}%")
-        if algorithm_type == "enhanced_feature":
-            print(f"  - 特征类型: {feature_type}")
-            print(f"  - 最少匹配数: {min_match_count}")
-            print(f"  - 匹配比例阈值: {match_ratio_threshold}")
-            print(f"  - 使用缓存: {'是' if use_cache else '否'}")
-            print(f"  - 自动更新缓存: {'是' if auto_update_cache else '否'}")
-            print(f"  - 目标尺寸: {target_size}")
-            print(f"  - 特征点数: {nfeatures}")
-            if self.auto_cache_updater:
-                cache_status = self.auto_cache_updater.get_cache_status()
-                print(f"  - 缓存状态: {'存在' if cache_status['cache_exists'] else '不存在'}")
-                if cache_status['cache_exists']:
-                    print(f"  - 缓存装备数: {cache_status['equipment_count']}")
-        elif algorithm_type == "advanced":
-            print(f"  - 掩码匹配: {'启用' if enable_masking else '禁用'}")
-            print(f"  - 直方图验证: {'启用' if enable_histogram else '禁用'}")
-        elif algorithm_type == "feature":
-            print(f"  - 特征类型: {feature_type}")
-            print(f"  - 最少匹配数: {min_match_count}")
-            print(f"  - 匹配比例阈值: {match_ratio_threshold}")
+            # 如果get_dhash不可用，提供一个简单的替代实现
+            def get_dhash_fallback(image_path):
+                """简单的dHash实现作为后备方案"""
+                try:
+                    from PIL import Image
+                    import numpy as np
+                    
+                    # 加载图像
+                    img = Image.open(image_path)
+                    # 转换为灰度图
+                    img_gray = img.convert('L')
+                    # 调整尺寸
+                    img_resized = img_gray.resize((9, 8), Image.Resampling.LANCZOS)
+                    # 转换为numpy数组
+                    img_array = np.array(img_resized)
+                    
+                    # 计算差异
+                    diff = img_array[:, 1:] > img_array[:, :-1]
+                    # 转换为哈希字符串
+                    return ''.join(str(int(x)) for x in diff.flatten())
+                except Exception as e:
+                    return None
+            
+            self.get_dhash = get_dhash_fallback
     
     def _get_algorithm_name(self) -> str:
         """获取当前算法名称"""
@@ -363,7 +340,7 @@ class EnhancedEquipmentRecognizer:
             })
         
         return info
-    
+
     def _check_and_update_cache(self):
         """检查并自动更新缓存"""
         if not self.auto_cache_updater:
@@ -372,7 +349,6 @@ class EnhancedEquipmentRecognizer:
         try:
             # 检查基准装备目录是否存在
             if not os.path.exists(self.base_equipment_dir):
-                print(f"⚠️ 基准装备目录不存在: {self.base_equipment_dir}")
                 return
             
             # 获取基准装备数量
@@ -385,29 +361,22 @@ class EnhancedEquipmentRecognizer:
             
             # 如果缓存不存在或装备数量>=50，自动更新缓存
             if not cache_status['cache_exists'] or equipment_count >= 50:
-                print(f"检测到需要更新缓存:")
-                print(f"  - 基准装备数: {equipment_count}")
-                print(f"  - 缓存存在: {'是' if cache_status['cache_exists'] else '否'}")
-                print(f"  - 缓存装备数: {cache_status['equipment_count']}")
-                
                 # 自动更新缓存
-                success = self.auto_cache_updater.auto_update_if_needed(self.base_equipment_dir)
-                if success:
-                    print("✓ 缓存自动更新成功")
-                else:
-                    print("❌ 缓存自动更新失败")
+                self.auto_cache_updater.auto_update_if_needed(self.base_equipment_dir)
+                # 简化输出
             else:
-                print(f"缓存已是最新，无需更新")
-                
+                # 简化输出
+                pass
         except Exception as e:
-            print(f"❌ 检查和更新缓存失败: {e}")
+            # 简化错误输出
+            pass
     
     def update_cache_manually(self, incremental_only=True):
         """手动更新缓存
         
         Args:
             incremental_only: 是否仅增量更新，False则完全重建
-            
+        
         Returns:
             是否更新成功
         """
@@ -418,13 +387,10 @@ class EnhancedEquipmentRecognizer:
         try:
             print(f"开始手动更新缓存...")
             success = self.auto_cache_updater.update_cache(self.base_equipment_dir, incremental_only)
-            if success:
-                print("✓ 缓存手动更新成功")
-            else:
-                print("❌ 缓存手动更新失败")
+            # 简化输出
             return success
         except Exception as e:
-            print(f"❌ 手动更新缓存失败: {e}")
+            # 简化错误输出
             return False
     
     def get_cache_status(self):
@@ -446,7 +412,7 @@ class EnhancedEquipmentRecognizer:
         
         Args:
             advanced_result: 高级匹配结果
-            
+        
         Returns:
             (相似度, 是否匹配) 的元组
         """
@@ -459,7 +425,7 @@ class EnhancedEquipmentRecognizer:
         
         Args:
             feature_result: 特征匹配结果
-            
+        
         Returns:
             (相似度, 是否匹配) 的元组
         """
@@ -474,7 +440,7 @@ class EnhancedEquipmentRecognizer:
             image_path1: 第一张图像路径
             image_path2: 第二张图像路径
             threshold: 匹配阈值，若为None则使用默认阈值
-            
+        
         Returns:
             (相似度, 是否匹配) 的元组
         """
@@ -483,42 +449,24 @@ class EnhancedEquipmentRecognizer:
         try:
             if self.algorithm_type == "enhanced_feature" and self.enhanced_feature_recognizer is not None:
                 # 使用增强特征匹配算法（支持缓存）
-                print(f"使用增强特征匹配算法({self.feature_type}, 缓存)比较图像")
                 feature_result = self.enhanced_feature_recognizer.recognize_equipment(image_path1, image_path2)
                 similarity, is_match = self._convert_feature_result(feature_result)
-                
-                # 输出详细结果
-                print(f"  - 匹配数量: {feature_result.match_count}")
-                print(f"  - 单应性内点: {feature_result.homography_inliers}")
-                print(f"  - 匹配比例: {feature_result.match_ratio:.4f}")
-                print(f"  - 置信度: {feature_result.confidence:.2f}%")
+                # 简化结果输出，只显示关键信息
                 
             elif self.algorithm_type == "advanced" and self.advanced_recognizer is not None:
                 # 使用高级彩色模板匹配算法
-                print(f"使用高级彩色模板匹配算法比较图像")
                 advanced_result = self.advanced_recognizer.recognize_equipment(image_path1, image_path2)
                 similarity, is_match = self._convert_advanced_result(advanced_result)
-                
-                # 输出详细结果
-                print(f"  - 匹配方式: {advanced_result.matched_by.name}")
-                print(f"  - 模板相似度: {advanced_result.similarity:.2f}%")
-                print(f"  - 综合置信度: {advanced_result.confidence:.2f}%")
+                # 简化结果输出
                 
             elif self.algorithm_type == "feature" and self.feature_recognizer is not None:
                 # 使用特征匹配算法
-                print(f"使用特征匹配算法({self.feature_type})比较图像")
                 feature_result = self.feature_recognizer.recognize_equipment(image_path1, image_path2)
                 similarity, is_match = self._convert_feature_result(feature_result)
-                
-                # 输出详细结果
-                print(f"  - 匹配数量: {feature_result.match_count}")
-                print(f"  - 单应性内点: {feature_result.homography_inliers}")
-                print(f"  - 匹配比例: {feature_result.match_ratio:.4f}")
-                print(f"  - 置信度: {feature_result.confidence:.2f}%")
+                # 简化结果输出
                 
             else:
                 # 使用传统dHash算法
-                print(f"使用传统dHash算法比较图像")
                 traditional_recognizer = EquipmentRecognizer(current_threshold)
                 similarity, is_match = traditional_recognizer.compare_images(image_path1, image_path2, current_threshold)
             
@@ -528,7 +476,7 @@ class EnhancedEquipmentRecognizer:
             return similarity, is_match
             
         except Exception as e:
-            print(f"图像比较失败: {e}")
+            # 简化错误输出
             return 0.0, False
     
     def recognize_equipment_advanced(self, base_image_path: str, target_image_path: str) -> Optional[Any]:
@@ -537,18 +485,18 @@ class EnhancedEquipmentRecognizer:
         Args:
             base_image_path: 基准装备图像路径
             target_image_path: 目标图像路径
-            
+        
         Returns:
             高级匹配结果，若高级算法不可用则返回None
         """
         if self.advanced_recognizer is None:
-            print("错误: 高级识别器不可用")
+            print("❌ 高级识别器不可用")
             return None
             
         try:
             return self.advanced_recognizer.recognize_equipment(base_image_path, target_image_path)
         except Exception as e:
-            print(f"高级装备识别失败: {e}")
+            print(f"❌ 高级装备识别失败")
             return None
     
     def set_algorithm_mode(self, use_advanced: bool) -> None:
@@ -568,7 +516,7 @@ class EnhancedEquipmentRecognizer:
             base_image_path: 基准装备图像路径
             target_folder: 目标图像文件夹
             threshold: 相似度阈值，若为None则使用默认阈值
-            
+        
         Returns:
             识别结果列表
         """
@@ -581,7 +529,7 @@ class EnhancedEquipmentRecognizer:
             for ext in ['*.png', '*.jpg', '*.jpeg', '*.webp']:
                 target_files.extend(Path(target_folder).glob(ext))
             
-            print(f"找到 {len(target_files)} 个目标图像进行批量识别")
+            # 简化批量识别输出
             
             # 对每个目标图像进行识别
             for target_file in target_files:
@@ -665,12 +613,11 @@ class EnhancedEquipmentRecognizer:
             # 按置信度排序
             results.sort(key=lambda x: x['confidence'], reverse=True)
             
-            print(f"批量识别完成，{len(results)} 个结果超过阈值 {current_threshold}%")
-            
+            # 简化输出
             return results
             
         except Exception as e:
-            print(f"批量识别失败: {e}")
+            # 简化错误输出
             return []
 
 

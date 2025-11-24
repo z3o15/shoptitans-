@@ -93,7 +93,7 @@ class ConfigManager:
                     loaded_config = json.load(f)
                 # 合并默认配置和加载的配置
                 config = self._merge_configs(default_config, loaded_config)
-                print(f"✓ 配置文件已加载: {self.config_path}")
+                # 不输出配置加载信息
                 return config
             except Exception as e:
                 print(f"⚠️ 配置文件加载失败，使用默认配置: {e}")
@@ -223,6 +223,62 @@ class ConfigManager:
             特征缓存配置字典
         """
         return self.config.get("feature_cache", {})
+    
+    def get_preprocessing_config(self) -> Dict[str, Any]:
+        """获取图像预处理配置
+        
+        Returns:
+            图像预处理配置字典
+        """
+        return self.config.get("preprocessing", {
+            "target_size": [116, 116],
+            "enable_enhancement": True,
+            "save_intermediate": False,
+            "histogram_equalization": False,
+            "clahe_enhancement": True,
+            "clahe_clip_limit": 2.0,
+            "clahe_grid_size": [8, 8],
+            "gaussian_blur": True,
+            "gaussian_kernel": [5, 5],
+            "gaussian_sigma": 0,
+            "canny_edges": True,
+            "canny_low_threshold": 50,
+            "canny_high_threshold": 150
+        })
+    
+    def get_quality_config(self) -> Dict[str, Any]:
+        """获取质量检测配置
+        
+        Returns:
+            质量检测配置字典
+        """
+        return self.config.get("quality", {
+            "min_resolution": [50, 50],
+            "max_blur_score": 100.0,
+            "min_brightness": 30.0,
+            "max_brightness": 200.0
+        })
+    
+    def get_background_removal_config(self) -> Dict[str, Any]:
+        """获取背景去除配置
+        
+        Returns:
+            背景去除配置字典
+        """
+        return self.config.get("background_removal", {
+            "gaussian_blur_kernel": [3, 3],
+            "canny_threshold1": 30,
+            "canny_threshold2": 100,
+            "morph_kernel_size": [3, 3]
+        })
+    
+    def get_target_size(self) -> list:
+        """获取目标图像尺寸
+        
+        Returns:
+            目标尺寸列表 [宽度, 高度]
+        """
+        return self.get_preprocessing_config().get("target_size", [116, 116])
     
     def update_recognition_config(self, **kwargs) -> None:
         """更新识别配置

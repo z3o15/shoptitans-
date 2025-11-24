@@ -6,12 +6,12 @@ from .equipment_recognizer import EnhancedEquipmentRecognizer
 from .screenshot_cutter import ScreenshotCutter
 from .config_manager import get_config_manager, create_recognizer_from_config
 
-# 导入节点日志管理器
+# 导入统一日志管理器
 try:
-    from .node_logger import get_logger
-    NODE_LOGGER_AVAILABLE = True
+    from .unified_logger import get_unified_logger
+    UNIFIED_LOGGER_AVAILABLE = True
 except ImportError:
-    NODE_LOGGER_AVAILABLE = False
+    UNIFIED_LOGGER_AVAILABLE = False
 
 class EquipmentMatcher:
     """装备匹配器，整合切割和识别功能"""
@@ -49,9 +49,9 @@ class EquipmentMatcher:
         all_items = []
         all_match_details = []
         
-        if NODE_LOGGER_AVAILABLE:
-            logger = get_logger()
-            logger.start_node(f"装备匹配: {os.path.basename(base_img_path)}", "🔍")
+        if UNIFIED_LOGGER_AVAILABLE:
+            logger = get_unified_logger()
+            logger.start_step("step3_match", f"装备匹配: {os.path.basename(base_img_path)}")
             logger.log_info(f"匹配阈值: {current_threshold}%")
             algorithm_info = self.recognizer.get_algorithm_info()
             algorithm_name = algorithm_info.get('algorithm_name', '未知算法')
@@ -78,12 +78,13 @@ class EquipmentMatcher:
                 
                 if is_match:
                     matched_items.append((filename, similarity))
-                    if NODE_LOGGER_AVAILABLE:
-                        logger.log_success(f"{filename} - 相似度：{similarity:.2f}%")
+                    if UNIFIED_LOGGER_AVAILABLE:
+                        logger.log_success(f"{filename} - 相似度：{similarity:.2f}%", show_in_console=True)
                     else:
                         print(f"【匹配成功】{filename} - 相似度：{similarity}%")
                 else:
-                    if NODE_LOGGER_AVAILABLE:
+                    # 不显示未匹配的项目，减少终端输出
+                    if UNIFIED_LOGGER_AVAILABLE:
                         logger.log_info(f"{filename} - 相似度：{similarity:.2f}%")
                     else:
                         print(f"【未匹配】{filename} - 相似度：{similarity}%")
@@ -103,17 +104,18 @@ class EquipmentMatcher:
         self.results.append(result_data)
         
         # 输出汇总信息
-        if NODE_LOGGER_AVAILABLE:
+        if UNIFIED_LOGGER_AVAILABLE:
             logger.log_info(f"处理完成！总计 {len(all_items)} 个装备，匹配 {len(matched_items)} 个")
             
             if matched_items:
-                logger.log_info("匹配结果:")
+                logger.log_success(f"找到 {len(matched_items)} 个匹配项", show_in_console=True)
+                # 只在日志文件中记录详细结果，不在控制台显示
                 for filename, similarity in matched_items:
                     logger.log_info(f"- {filename}: {similarity:.2f}%")
             else:
                 logger.log_warning("未找到匹配的装备")
             
-            logger.end_node("✅")
+            logger.end_step("step3_match", "完成")
         else:
             print("-" * 50)
             print(f"处理完成！总计 {len(all_items)} 个装备，匹配 {len(matched_items)} 个")
@@ -363,7 +365,11 @@ class EquipmentMatcher:
         Returns:
             匹配结果列表
         """
-        print(f"开始处理截图: {screenshot_path}")
+        if UNIFIED_LOGGER_AVAILABLE:
+            logger = get_unified_logger()
+            logger.start_step("step_process", f"处理截图: {os.path.basename(screenshot_path)}")
+        else:
+            print(f"开始处理截图: {screenshot_path}")
         start_time = time.time()
         
         # 创建输出文件夹
@@ -415,7 +421,11 @@ class EquipmentMatcher:
         self.save_results(result_file)
         
         end_time = time.time()
-        print(f"\n处理完成！耗时: {end_time - start_time:.2f} 秒")
+        if UNIFIED_LOGGER_AVAILABLE:
+            logger.log_info(f"处理完成！耗时: {end_time - start_time:.2f} 秒")
+            logger.end_step("step_process", "完成")
+        else:
+            print(f"\n处理完成！耗时: {end_time - start_time:.2f} 秒")
         
         return matched_items
 
@@ -442,9 +452,13 @@ def batch_compare(recognizer, base_img_path, crop_folder, threshold=None):
             
             if is_match:
                 matched_items.append((filename, similarity))
-                print(f"【匹配成功】{filename} - 相似度：{similarity}%")
+                # 减少终端输出，只在日志文件中记录详细信息
+                if not UNIFIED_LOGGER_AVAILABLE:
+                    print(f"【匹配成功】{filename} - 相似度：{similarity}%")
             else:
-                print(f"【未匹配】{filename} - 相似度：{similarity}%")
+                # 不显示未匹配的项目，减少终端输出
+                if not UNIFIED_LOGGER_AVAILABLE:
+                    print(f"【未匹配】{filename} - 相似度：{similarity}%")
     
     if matched_items:
         print("\n匹配结果汇总：")

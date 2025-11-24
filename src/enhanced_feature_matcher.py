@@ -57,14 +57,7 @@ class EnhancedFeatureEquipmentRecognizer(FeatureEquipmentRecognizer):
         # 调用父类初始化
         super().__init__(feature_type, min_match_count, match_ratio_threshold, min_homography_inliers)
         
-        print(f"✓ 增强特征匹配识别器初始化完成")
-        print(f"  - 特征算法: {feature_type.value}")
-        print(f"  - 最少匹配数: {min_match_count}")
-        print(f"  - 匹配比例阈值: {match_ratio_threshold}")
-        print(f"  - 最小单应性内点: {min_homography_inliers}")
-        print(f"  - 使用缓存: {'是' if use_cache else '否'}")
-        print(f"  - 目标尺寸: {target_size}")
-        print(f"  - 特征点数: {nfeatures}")
+        # 简化输出，不显示初始化信息
         
         if use_cache:
             self.cache_manager = FeatureCacheManager(
@@ -74,13 +67,11 @@ class EnhancedFeatureEquipmentRecognizer(FeatureEquipmentRecognizer):
             )
             cache_loaded = self.cache_manager.load_feature_cache()
             if cache_loaded and self.cache_manager.is_cache_valid():
-                print(f"✓ 特征缓存加载成功，包含 {len(self.cache_manager.cache_data.get('features', {}))} 个装备")
+                pass  # 简化输出
             else:
-                print(f"⚠️ 特征缓存无效或不存在，将使用原始特征提取方法")
                 self.use_cache = False
         else:
             self.cache_manager = None
-            print(f"✓ 已禁用特征缓存，将使用原始特征提取方法")
         
         # 创建标准尺寸的检测器（用于目标图像）
         self.standard_detector = self._create_detector()
@@ -116,10 +107,9 @@ class EnhancedFeatureEquipmentRecognizer(FeatureEquipmentRecognizer):
             return False
         
         if self.cache_manager.is_cache_valid():
-            print("特征缓存已存在且有效")
             return True
         
-        print("构建特征缓存...")
+        # 简化输出
         success = self.cache_manager.build_feature_cache(base_equipment_dir)
         
         if success:
@@ -185,13 +175,13 @@ class EnhancedFeatureEquipmentRecognizer(FeatureEquipmentRecognizer):
             特征匹配结果
         """
         try:
-            print(f"开始缓存特征匹配: {base_name} vs {target_image_path}")
+            # 简化输出，不显示每个匹配的详细信息
             
             # 从缓存获取基准特征
             kp1, desc1 = self.cache_manager.get_cached_features(base_name)
             
             if kp1 is None or desc1 is None:
-                print(f"  ❌ 缓存中未找到装备: {base_name}")
+                # 简化错误输出
                 # 回退到原始方法
                 return self._recognize_with_extraction(f"{base_name}.webp", target_image_path)
             
@@ -201,33 +191,27 @@ class EnhancedFeatureEquipmentRecognizer(FeatureEquipmentRecognizer):
             if target_image is None:
                 return self._create_failure_result(base_name, target_image_path)
             
-            print(f"  基准图像特征点: {len(kp1)} (来自缓存)")
-            print(f"  目标图像尺寸: {target_image.shape}")
+            # 简化特征点信息输出
             
             # 提取目标图像特征
             kp2, desc2 = self.extract_features(target_image)
             
-            print(f"  目标图像特征点: {len(kp2)}")
-            
             if desc2 is None or len(kp2) < 10:
-                print("  ❌ 目标图像特征点不足，无法进行有效匹配")
+                # 简化错误输出
                 return self._create_failure_result(base_name, target_image_path)
             
             # 匹配特征
             matches = self.match_features(desc1, desc2)
             match_count = len(matches)
             
-            print(f"  初步匹配数量: {match_count}")
-            
             if match_count < self.min_match_count:
-                print(f"  ❌ 匹配数量不足（最少需要{self.min_match_count}个）")
+                # 简化错误输出
                 return self._create_failure_result(base_name, target_image_path, match_count)
             
             # 验证单应性
             homography_inliers, is_valid = self.verify_homography(kp1, kp2, matches)
             
-            print(f"  单应性内点: {homography_inliers}")
-            print(f"  几何一致性: {'✓ 有效' if is_valid else '❌ 无效'}")
+            # 简化几何一致性输出
             
             # 计算置信度
             confidence = self.calculate_confidence(match_count, match_count, homography_inliers)
@@ -235,8 +219,7 @@ class EnhancedFeatureEquipmentRecognizer(FeatureEquipmentRecognizer):
             # 计算匹配比例
             match_ratio = match_count / max(len(kp1), len(kp2))
             
-            print(f"  匹配比例: {match_ratio:.4f}")
-            print(f"  置信度: {confidence:.2f}%")
+            # 简化匹配比例和置信度输出
             
             # 创建结果
             result = FeatureMatchResult(
@@ -251,12 +234,12 @@ class EnhancedFeatureEquipmentRecognizer(FeatureEquipmentRecognizer):
                 is_valid_match=is_valid and confidence >= 60  # 60%置信度阈值
             )
             
-            print(f"识别完成: {result.item_name}, 置信度: {result.confidence:.2f}%, 有效匹配: {result.is_valid_match}")
+            # 简化输出，不显示每个匹配结果
             
             return result
             
         except Exception as e:
-            print(f"缓存特征匹配失败: {e}")
+            # 简化错误输出
             return self._create_failure_result(base_name, target_image_path)
     
     def _recognize_with_extraction(self, base_image_path: str, target_image_path: str) -> FeatureMatchResult:
@@ -366,6 +349,8 @@ class EnhancedFeatureEquipmentRecognizer(FeatureEquipmentRecognizer):
         """
         try:
             # 加载图像
+            # 确保路径格式正确
+            image_path = os.path.normpath(image_path)
             image = Image.open(image_path)
             
             # 转换为RGB格式
@@ -593,8 +578,8 @@ class EnhancedFeatureMatcher(EnhancedFeatureEquipmentRecognizer):
         super().__init__(use_cache=use_cache, **kwargs)
  
 
-# 为了向后兼容，创建别名
-# EnhancedFeatureMatcher = EnhancedFeatureEquipmentRecognizer
+# 为了向后兼容，已创建EnhancedFeatureMatcher类
 
 if __name__ == "__main__":
-    test_enhanced_feature_matcher()
+    # 示例用法
+    pass

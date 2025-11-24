@@ -700,6 +700,51 @@ def generate_annotated_screenshots():
         traceback.print_exc()
         return False
 
+def run_enhanced_preprocess():
+    """运行增强的图像预处理流水线"""
+    print("\n" + "=" * 60)
+    print("运行增强的图像预处理流水线")
+    print("=" * 60)
+    print("此功能将从 cropped_equipment_original 读取圆形带填充的装备图片")
+    print("处理后的图像将保存到 images/cropped_equipment 目录")
+    print("删除逻辑: 首次处理不删除原始图片，第二次处理时删除已存在处理结果的原始图片")
+    print("-" * 60)
+    
+    # 检查依赖
+    if not check_dependencies():
+        return False
+    
+    # 检查输入目录
+    input_dir = "images/cropped_equipment_original"
+    
+    if os.path.exists(input_dir):
+        print(f"✓ 找到输入目录: {input_dir}")
+    else:
+        print(f"❌ 输入目录不存在: {input_dir}")
+        print("请先完成前置步骤")
+        return False
+    
+    try:
+        from src.enhanced_preprocess_start import process_preprocessed_images
+        
+        # 运行增强的预处理流水线
+        success = process_preprocessed_images()
+        
+        if success:
+            print("\n✅ 增强的图像预处理流水线执行完成！")
+            print("处理后的图像已保存到 images/cropped_equipment 目录")
+            print("现在可以继续进行装备识别匹配步骤")
+        else:
+            print("\n❌ 增强的图像预处理流水线执行失败")
+        
+        return success
+        
+    except Exception as e:
+        print(f"❌ 运行增强的图像预处理流水线时出错: {e}")
+        import traceback
+        traceback.print_exc()
+        return False
+
 def run_full_workflow():
     """运行完整工作流程"""
     print("\n" + "=" * 60)
@@ -861,6 +906,7 @@ def show_menu():
     print("9. 查看项目文档")
     print("10. 清理切割结果和日志")
     print("11. 生成带圆形标记的原图注释")
+    print("12. 运行增强的图像预处理流水线")
     print("0. 退出")
     print("-" * 60)
 
@@ -919,8 +965,10 @@ def main():
                 clear_previous_results()
             elif choice == '11':
                 generate_annotated_screenshots()
+            elif choice == '12':
+                run_enhanced_preprocess()
             else:
-                print("无效选择，请输入0-11之间的数字")
+                print("无效选择，请输入0-12之间的数字")
                 
         except KeyboardInterrupt:
             print("\n\n程序被用户中断")
