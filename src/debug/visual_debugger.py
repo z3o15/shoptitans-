@@ -336,7 +336,8 @@ class VisualDebugger:
             
             # 拼接热图
             heatmap_combined = np.hstack([template_heatmap_colored, query_heatmap_colored])
-            heatmap_path = os.path.join(self.debug_dir, "heatmaps", f"{base_filename}_heatmap.png")
+            from src.utils.path_manager import get_path
+            heatmap_path = os.path.join(get_path("debug_dir"), "heatmaps", f"{base_filename}_heatmap.png")
             cv2.imwrite(heatmap_path, heatmap_combined)
             result_paths["heatmap"] = heatmap_path
             
@@ -346,7 +347,7 @@ class VisualDebugger:
             
             # 拼接关键点图像
             keypoints_combined = np.hstack([template_with_kp, query_with_kp])
-            keypoints_path = os.path.join(self.debug_dir, "matches", f"{base_filename}_keypoints.png")
+            keypoints_path = os.path.join(get_path("debug_dir"), "matches", f"{base_filename}_keypoints.png")
             cv2.imwrite(keypoints_path, keypoints_combined)
             result_paths["keypoints"] = keypoints_path
             
@@ -354,14 +355,14 @@ class VisualDebugger:
             if matches:
                 matches_img = self._draw_matches(template_img, template_kp, query_img, query_kp, 
                                                 matches, match_mask)
-                matches_path = os.path.join(self.debug_dir, "matches", f"{base_filename}_matches.png")
+                matches_path = os.path.join(get_path("debug_dir"), "matches", f"{base_filename}_matches.png")
                 cv2.imwrite(matches_path, matches_img)
                 result_paths["matches"] = matches_path
                 
                 # 4. 绘制单应性变换对齐结果
                 alignment_img = self._draw_homography_alignment(template_img, template_kp, 
                                                               query_img, query_kp, matches, H)
-                alignment_path = os.path.join(self.debug_dir, "alignments", f"{base_filename}_alignment.png")
+                alignment_path = os.path.join(get_path("debug_dir"), "alignments", f"{base_filename}_alignment.png")
                 cv2.imwrite(alignment_path, alignment_img)
                 result_paths["alignment"] = alignment_path
             
@@ -411,7 +412,7 @@ class VisualDebugger:
                 timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
                 output_filename = f"batch_debug_report_{timestamp}.json"
             
-            report_path = os.path.join(self.debug_dir, "reports", output_filename)
+            report_path = os.path.join(get_path("debug_dir"), "reports", output_filename)
             
             # 统计数据
             total_items = len(batch_results)
@@ -522,7 +523,7 @@ class VisualDebugger:
             plt.tight_layout()
             
             # 保存图表
-            chart_path = os.path.join(self.debug_dir, "reports", output_filename)
+            chart_path = os.path.join(get_path("debug_dir"), "reports", output_filename)
             plt.savefig(chart_path, dpi=300, bbox_inches='tight')
             plt.close()
             

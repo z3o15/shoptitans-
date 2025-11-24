@@ -242,11 +242,11 @@ def step2_cut_screenshots(auto_mode=True, auto_clear_old=True, auto_select_all=T
         return False
     
     # 确保输出目录存在
-    output_dir = "images/cropped_equipment"
-    os.makedirs(output_dir, exist_ok=True)
+    from src.utils.path_manager import get_path
+    output_dir = get_path("cropped_equipment_dir", create_if_not_exists=True)
     
     # 检查是否需要清理旧文件（主目录和marker目录）
-    marker_output_dir = "images/cropped_equipment_marker"
+    marker_output_dir = get_path("cropped_equipment_marker_dir")
     existing_files_main = []
     existing_files_marker = []
     
@@ -417,11 +417,12 @@ def step2_cut_screenshots(auto_mode=True, auto_clear_old=True, auto_select_all=T
             
             # 创建时间命名的输出目录
             time_folder = datetime.now().strftime('%Y%m%d_%H%M%S')
-            output_folder = os.path.join(output_dir, time_folder)
+            output_folder = get_path("cropped_equipment_dir")
+            output_folder = os.path.join(output_folder, time_folder)
             os.makedirs(output_folder, exist_ok=True)
             
             # 创建带圆形标记副本的目录
-            marker_output_dir = "images/cropped_equipment_marker"
+            marker_output_dir = get_path("cropped_equipment_marker_dir")
             marker_output_folder = os.path.join(marker_output_dir, time_folder)
             os.makedirs(marker_output_folder, exist_ok=True)
             

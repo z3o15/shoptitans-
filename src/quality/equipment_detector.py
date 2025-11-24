@@ -371,6 +371,9 @@ class EquipmentDetector:
             output_dir: 输出目录
         """
         try:
+            from src.utils.path_manager import ensure_path_valid
+            if not ensure_path_valid(os.path.dirname(output_dir)):
+                os.makedirs(os.path.dirname(output_dir), exist_ok=True)
             os.makedirs(output_dir, exist_ok=True)
             
             # 生成JSON报告

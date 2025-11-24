@@ -1,0 +1,199 @@
+{
+  "recognition": {
+    "default_threshold": 80,
+    "algorithm_type": "enhanced_feature",
+    "feature_type": "ORB",
+    "min_match_count": 8,
+    "match_ratio_threshold": 0.75,
+    "min_homography_inliers": 6,
+    "use_advanced_algorithm": true,
+    "enable_masking": true,
+    "enable_histogram": true,
+    "target_size": [116, 116],
+    "nfeatures": 3000,
+    "scale_factor": 1.1,
+    "edge_threshold": 15,
+    "block_size": 31,
+    "use_cache": true,
+    "cache_dir": "images/cache",
+    "auto_cache_update": true,
+    "algorithm_description": "增强特征匹配算法，使用预计算缓存提供高性能的装备识别"
+  },
+  "preprocessing": {
+    "enable_enhancement": true,
+    "histogram_equalization": false,
+    "clahe_enhancement": true,
+    "clahe_clip_limit": 2.0,
+    "clahe_grid_size": [8, 8],
+    "gaussian_blur": true,
+    "gaussian_kernel": [3, 3],
+    "gaussian_sigma": 0.5,
+    "canny_edges": true,
+    "canny_use_adaptive_threshold": false,
+    "canny_low_threshold": 50,
+    "canny_high_threshold": 150,
+    "morphology_post_process": false,
+    "morphology_kernel": [3, 3],
+    "morphology_iterations": 1
+  },
+  "background_removal": {
+    "gaussian_blur_kernel": [3, 3],
+    "canny_threshold1": 40,
+    "canny_threshold2": 120,
+    "morph_kernel_size": [5, 5],
+    "morph_close_iterations": 2,
+    "morph_open_iterations": 1
+  },
+  "feature_cache": {
+    "enabled": true,
+    "cache_dir": "images/cache",
+    "cache_file": "equipment_features.pkl",
+    "target_size": [116, 116],
+    "auto_rebuild": false,
+    "version": "1.0",
+    "nfeatures": 1000,
+    "auto_update": true
+  },
+  "quality_check": {
+    "enabled": true,
+    "min_resolution": [50, 50],
+    "min_features": 10,
+    "auto_report": true
+  },
+  "debug": {
+    "enable_visual_debug": false,
+    "save_match_heatmaps": false,
+    "save_homography_overlays": false,
+    "debug_output_dir": "debug/"
+  },
+  "cutting": {
+    "default_method": "fixed",
+    "fixed_grid": [5, 2],
+    "fixed_item_width": 210,
+    "fixed_item_height": 160,
+    "fixed_margin_left": 10,
+    "fixed_margin_top": 275,
+    "fixed_h_spacing": 15,
+    "fixed_v_spacing": 20,
+    "contour_min_area": 800,
+    "contour_max_area": 50000
+  },
+  "paths": {
+    "images_dir": "images",
+    "base_equipment_dir": "base_equipment",
+    "game_screenshots_dir": "game_screenshots",
+    "cropped_equipment_dir": "cropped_equipment",
+    "cropped_equipment_original_dir": "cropped_equipment_original",
+    "logs_dir": "recognition_logs",
+    "output_dir": "output",
+    "tests_dir": "tests"
+  },
+  "logging": {
+    "enable_logging": true,
+    "log_level": "INFO",
+    "include_algorithm_info": true,
+    "include_performance_metrics": true
+  },
+  "performance": {
+    "enable_caching": true,
+    "cache_size": 100,
+    "parallel_processing": false,
+    "max_workers": 4
+  },
+  "ui": {
+    "show_algorithm_selection": true,
+    "show_performance_info": true,
+    "show_detailed_results": true
+  },
+  "annotation": {
+    "enable_annotation": true,
+    "circle_color": "red",
+    "circle_width": 3,
+    "font_size": 12,
+    "show_similarity_text": true,
+    "auto_generate_annotation": false,
+    "annotation_output_dir": "annotated_screenshots"
+  },
+  "ocr": {
+    "enabled": true,
+    "engine": "easyocr",
+    "language": ["en"],
+    "price_pattern": "\\d{1,3}(?:,\\d{3})*",
+    "confidence_threshold": 0.8,
+    "preprocessing": {
+      "grayscale": false,
+      "threshold": true,
+      "denoise": true
+    },
+    "sharpening": {
+      "enabled": true
+    },
+    "scaling": {
+      "enabled": true,
+      "scale_factor": 1.5
+    },
+    "recognition_region": {
+      "enabled": true,
+      "left": 27,
+      "right": 145,
+      "top": 122,
+      "bottom": 152
+    },
+    "input_folder": "images/cropped_equipment_marker",
+    "output_csv": "ocr_rename_records.csv",
+    "rename_separator": "_",
+    "supported_formats": [".png", ".jpg", ".jpeg", ".bmp", ".tiff"],
+    "fallback_preprocessing": [
+      {
+        "name": "原始图像",
+        "grayscale": false,
+        "threshold": false,
+        "denoise": false
+      },
+      {
+        "name": "仅灰度化",
+        "grayscale": true,
+        "threshold": false,
+        "denoise": false
+      },
+      {
+        "name": "灰度化+降噪",
+        "grayscale": true,
+        "threshold": false,
+        "denoise": true
+      }
+    ]
+  },
+  "integration": {
+    "enable_equipment_name_recognition": true,
+    "enable_amount_recognition": true,
+    "equipment_name_separator": "_",
+    "amount_separator": "_",
+    "csv_output_format": "extended",
+    "equipment_recognition_threshold": 80
+  },
+  "console_output": {
+    "show_debug": false,
+    "show_progress": true,
+    "compact_mode": true,
+    "node_icons": {
+      "init": "🚀",
+      "step1": "🖼️",
+      "step2": "✂️",
+      "step3": "🔍",
+      "step4": "📊",
+      "complete": "✅"
+    }
+  },
+  "output_structure": {
+    "use_timestamp_dirs": true,
+    "timestamp_format": "%Y%m%d_%H%M%S",
+    "step_subdirs": {
+      "step1": "preprocessing",
+      "step2": "cutting",
+      "step3": "matching",
+      "step4": "ocr"
+    },
+    "standard_subdirs": ["images", "logs", "reports", "temp"]
+  }
+}

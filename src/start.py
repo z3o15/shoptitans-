@@ -170,8 +170,8 @@ def step2_cut_screenshots():
         return False
     
     # 确保输出目录存在
-    output_dir = "images/cropped_equipment"
-    os.makedirs(output_dir, exist_ok=True)
+    from src.utils.path_manager import get_path
+    output_dir = get_path("cropped_equipment_dir", create_if_not_exists=True)
     
     # 检查是否需要清理旧文件
     existing_files = []
@@ -259,7 +259,8 @@ def step2_cut_screenshots():
             
             # 创建时间命名的输出目录
             time_folder = datetime.now().strftime('%Y%m%d_%H%M%S')
-            output_folder = os.path.join(output_dir, time_folder)
+            output_folder = get_path("cropped_equipment_dir")
+            output_folder = os.path.join(output_folder, time_folder)
             os.makedirs(output_folder, exist_ok=True)
             
             # 使用从配置文件读取的切割参数
