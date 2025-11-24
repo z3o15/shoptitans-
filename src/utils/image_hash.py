@@ -178,9 +178,9 @@ def calculate_similarity(hash1: Union[str, int], hash2: Union[str, int]) -> floa
         return 0.0
 
 
-def test_dhash():
-    """测试dHash功能"""
-    print("测试dHash功能...")
+if __name__ == "__main__":
+    # 简单的示例用法
+    import cv2
     
     # 创建测试图像
     test_img1 = np.zeros((100, 100), dtype=np.uint8)
@@ -200,9 +200,3 @@ def test_dhash():
     # 计算相似度
     similarity = calculate_similarity(dhash1, dhash2)
     print(f"相似度: {similarity}%")
-    
-    print("dHash功能测试完成")
-
-
-if __name__ == "__main__":
-    test_dhash()

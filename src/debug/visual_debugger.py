@@ -530,6 +530,229 @@ class VisualDebugger:
             
         except Exception as e:
             print(f"❌ 生成批量可视化图表失败: {e}")
+    
+    def generate_matching_report(self, base_image_path, matching_results, threshold):
+        """生成匹配报告
+        
+        Args:
+            base_image_path: 基准图像路径
+            matching_results: 匹配结果列表
+            threshold: 匹配阈值
+            
+        Returns:
+            报告文件路径
+        """
+        try:
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            report_filename = f"matching_report_{timestamp}.html"
+            report_path = os.path.join(self.debug_dir, "reports", report_filename)
+            
+            # 创建HTML报告
+            html_content = f"""
+            <!DOCTYPE html>
+            <html>
+            <head>
+                <title>装备匹配报告</title>
+                <meta charset="utf-8">
+                <style>
+                    body {{ font-family: Arial, sans-serif; margin: 20px; }}
+                    h1 {{ color: #333; }}
+                    table {{ border-collapse: collapse; width: 100%; margin-top: 20px; }}
+                    th, td {{ border: 1px solid #ddd; padding: 8px; text-align: left; }}
+                    th {{ background-color: #f2f2f2; }}
+                    .high-similarity {{ background-color: #d4edda; }}
+                    .medium-similarity {{ background-color: #fff3cd; }}
+                    .low-similarity {{ background-color: #f8d7da; }}
+                </style>
+            </head>
+            <body>
+                <h1>装备匹配报告</h1>
+                <p>基准图像: {base_image_path}</p>
+                <p>匹配阈值: {threshold}%</p>
+                <p>生成时间: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}</p>
+                
+                <h2>匹配结果</h2>
+                <table>
+                    <tr>
+                        <th>文件名</th>
+                        <th>相似度</th>
+                        <th>状态</th>
+                    </tr>
+            """
+            
+            for result in matching_results:
+                filename = result.get('filename', '未知')
+                similarity = result.get('similarity', 0)
+                
+                # 根据相似度设置样式
+                if similarity >= 80:
+                    status_class = "high-similarity"
+                    status_text = "高匹配度"
+                elif similarity >= 60:
+                    status_class = "medium-similarity"
+                    status_text = "中等匹配度"
+                else:
+                    status_class = "low-similarity"
+                    status_text = "低匹配度"
+                
+                html_content += f"""
+                    <tr class="{status_class}">
+                        <td>{filename}</td>
+                        <td>{similarity:.2f}%</td>
+                        <td>{status_text}</td>
+                    </tr>
+                """
+            
+            html_content += """
+                </table>
+            </body>
+            </html>
+            """
+            
+            # 保存HTML报告
+            with open(report_path, 'w', encoding='utf-8') as f:
+                f.write(html_content)
+            
+            return report_path
+            
+        except Exception as e:
+            print(f"❌ 生成匹配报告失败: {e}")
+            return ""
+    
+    def generate_detailed_analysis(self, debug_data):
+        """生成详细分析报告
+        
+        Args:
+            debug_data: 调试数据列表
+            
+        Returns:
+            分析报告文件路径
+        """
+        try:
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            report_filename = f"detailed_analysis_{timestamp}.html"
+            report_path = os.path.join(self.debug_dir, "reports", report_filename)
+            
+            # 计算统计数据
+            total_items = len(debug_data)
+            high_similarity_count = sum(1 for item in debug_data if item.get('similarity', 0) >= 80)
+            medium_similarity_count = sum(1 for item in debug_data if 60 <= item.get('similarity', 0) < 80)
+            low_similarity_count = total_items - high_similarity_count - medium_similarity_count
+            
+            avg_similarity = sum(item.get('similarity', 0) for item in debug_data) / total_items if total_items > 0 else 0
+            max_similarity = max(item.get('similarity', 0) for item in debug_data) if debug_data else 0
+            min_similarity = min(item.get('similarity', 0) for item in debug_data) if debug_data else 0
+            
+            # 创建HTML报告
+            html_content = f"""
+            <!DOCTYPE html>
+            <html>
+            <head>
+                <title>详细分析报告</title>
+                <meta charset="utf-8">
+                <style>
+                    body {{ font-family: Arial, sans-serif; margin: 20px; }}
+                    h1 {{ color: #333; }}
+                    h2 {{ color: #555; border-bottom: 1px solid #ddd; padding-bottom: 5px; }}
+                    .stats-container {{ display: flex; flex-wrap: wrap; gap: 20px; margin: 20px 0; }}
+                    .stat-box {{ border: 1px solid #ddd; border-radius: 5px; padding: 15px; min-width: 200px; background-color: #f9f9f9; }}
+                    .stat-value {{ font-size: 24px; font-weight: bold; color: #007bff; }}
+                    .stat-label {{ color: #666; margin-top: 5px; }}
+                    table {{ border-collapse: collapse; width: 100%; margin-top: 20px; }}
+                    th, td {{ border: 1px solid #ddd; padding: 8px; text-align: left; }}
+                    th {{ background-color: #f2f2f2; }}
+                    .high-similarity {{ background-color: #d4edda; }}
+                    .medium-similarity {{ background-color: #fff3cd; }}
+                    .low-similarity {{ background-color: #f8d7da; }}
+                </style>
+            </head>
+            <body>
+                <h1>装备匹配详细分析报告</h1>
+                <p>生成时间: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}</p>
+                
+                <h2>统计概览</h2>
+                <div class="stats-container">
+                    <div class="stat-box">
+                        <div class="stat-value">{total_items}</div>
+                        <div class="stat-label">总项目数</div>
+                    </div>
+                    <div class="stat-box">
+                        <div class="stat-value">{avg_similarity:.2f}%</div>
+                        <div class="stat-label">平均相似度</div>
+                    </div>
+                    <div class="stat-box">
+                        <div class="stat-value">{max_similarity:.2f}%</div>
+                        <div class="stat-label">最高相似度</div>
+                    </div>
+                    <div class="stat-box">
+                        <div class="stat-value">{min_similarity:.2f}%</div>
+                        <div class="stat-label">最低相似度</div>
+                    </div>
+                </div>
+                
+                <h2>相似度分布</h2>
+                <div class="stats-container">
+                    <div class="stat-box">
+                        <div class="stat-value">{high_similarity_count}</div>
+                        <div class="stat-label">高匹配度 (≥80%)</div>
+                    </div>
+                    <div class="stat-box">
+                        <div class="stat-value">{medium_similarity_count}</div>
+                        <div class="stat-label">中等匹配度 (60-80%)</div>
+                    </div>
+                    <div class="stat-box">
+                        <div class="stat-value">{low_similarity_count}</div>
+                        <div class="stat-label">低匹配度 (<60%)</div>
+                    </div>
+                </div>
+                
+                <h2>详细结果</h2>
+                <table>
+                    <tr>
+                        <th>文件名</th>
+                        <th>相似度</th>
+                        <th>状态</th>
+                    </tr>
+            """
+            
+            for result in debug_data:
+                filename = result.get('filename', '未知')
+                similarity = result.get('similarity', 0)
+                
+                # 根据相似度设置样式
+                if similarity >= 80:
+                    status_class = "high-similarity"
+                    status_text = "高匹配度"
+                elif similarity >= 60:
+                    status_class = "medium-similarity"
+                    status_text = "中等匹配度"
+                else:
+                    status_class = "low-similarity"
+                    status_text = "低匹配度"
+                
+                html_content += f"""
+                    <tr class="{status_class}">
+                        <td>{filename}</td>
+                        <td>{similarity:.2f}%</td>
+                        <td>{status_text}</td>
+                    </tr>
+                """
+            
+            html_content += """
+                </table>
+            </body>
+            </html>
+            """
+            
+            # 保存HTML报告
+            with open(report_path, 'w', encoding='utf-8') as f:
+                f.write(html_content)
+            
+            return report_path
+            
+        except Exception as e:
+            print(f"❌ 生成详细分析报告失败: {e}")
+            return ""
 
 
 def test_visual_debugger():

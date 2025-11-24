@@ -27,24 +27,24 @@ class PreprocessPipeline:
     5. 预提取ORB特征
     """
     
-    def __init__(self, target_size=(116, 116), enable_enhancement=True):
+    def __init__(self, config=None):
         """初始化预处理流水线
         
         Args:
-            target_size: 目标图像尺寸 (宽度, 高度)
-            enable_enhancement: 是否启用图像增强
+            config: 预处理配置字典
         """
-        self.target_size = target_size
-        self.enable_enhancement = enable_enhancement
+        self.config = config or {}
+        self.target_size = tuple(self.config.get('target_size', [116, 116]))
+        self.enable_enhancement = self.config.get('enable_enhancement', True)
         
         # 初始化处理组件
-        self.background_remover = BackgroundRemover()
-        self.enhancer = ImageEnhancer()
-        self.resizer = ImageResizer(target_size)
+        self.background_remover = BackgroundRemover(self.config.get('background_removal', {}))
+        self.enhancer = ImageEnhancer(self.config.get('preprocessing', {}))
+        self.resizer = ImageResizer(self.target_size)
         
         print(f"✓ 图标标准化流水线初始化完成")
-        print(f"  - 目标尺寸: {target_size}")
-        print(f"  - 图像增强: {'启用' if enable_enhancement else '禁用'}")
+        print(f"  - 目标尺寸: {self.target_size}")
+        print(f"  - 图像增强: {'启用' if self.enable_enhancement else '禁用'}")
     
     def process_image(self, image_path: str, save_intermediate=False, 
                    output_dir=None) -> Tuple[np.ndarray, Optional[np.ndarray]]:
@@ -165,7 +165,226 @@ class PreprocessPipeline:
             print(f"ORB特征提取失败: {e}")
             return [], None
     
-    def batch_process_directory(self, input_dir: str, output_dir: str, 
+    def batch_process_directories(self, input_dirs: list, output_dir: str,
+                            save_intermediate=False, sync_deletion=True) -> dict:
+        """批量处理多个目录中的图像
+        
+        Args:
+            input_dirs: 输入目录列表
+            output_dir: 输出目录
+            save_intermediate: 是否保存中间处理结果
+            sync_deletion: 是否同步删除输入目录中的文件
+            
+        Returns:
+            处理结果字典
+        """
+        results = {
+            'processed': [],
+            'failed': [],
+            'deleted': [],
+            'stats': {
+                'total': 0,
+                'success': 0,
+                'failed': 0,
+                'deleted': 0
+            }
+        }
+        
+        # 确保输出目录存在
+        os.makedirs(output_dir, exist_ok=True)
+        
+        # 处理所有输入目录
+        for input_dir in input_dirs:
+            if not os.path.exists(input_dir):
+                print(f"⚠️ 输入目录不存在: {input_dir}")
+                continue
+                
+            # 检查是否有时间命名的子目录
+            subdirs = []
+            for item in os.listdir(input_dir):
+                item_path = os.path.join(input_dir, item)
+                if os.path.isdir(item_path) and item.replace('_', '').replace(':', '').isdigit():
+                    subdirs.append(item)
+            
+            if subdirs:
+                # 如果有时间命名的子目录，使用最新的一个
+                latest_dir = sorted(subdirs)[-1]
+                current_input_dir = os.path.join(input_dir, latest_dir)
+                print(f"✓ 找到时间目录: {latest_dir}")
+            else:
+                # 如果没有时间命名的子目录，直接使用主目录
+                current_input_dir = input_dir
+            
+            # 处理目录中的图像文件
+            for filename in os.listdir(current_input_dir):
+                if filename.lower().endswith(('.png', '.jpg', '.jpeg', '.webp')):
+                    input_path = os.path.join(current_input_dir, filename)
+                    
+                    # 创建单独的输出目录用于中间结果
+                    if save_intermediate:
+                        intermediate_dir = os.path.join(output_dir,
+                                                    f"intermediate_{os.path.splitext(filename)[0]}")
+                    else:
+                        intermediate_dir = None
+                    
+                    # 处理图像
+                    processed_image, orb_features = self.process_image(
+                        input_path, save_intermediate, intermediate_dir
+                    )
+                    
+                    if processed_image is not None:
+                        # 保存最终处理结果为JPG格式
+                        output_path = os.path.join(output_dir, filename)
+                        # 确保文件扩展名为.jpg
+                        if not output_path.lower().endswith('.jpg'):
+                            output_path = os.path.splitext(output_path)[0] + '.jpg'
+                        cv2.imwrite(output_path, processed_image, [int(cv2.IMWRITE_JPEG_QUALITY), 95])
+                        
+                        results['processed'].append({
+                            'filename': filename,
+                            'input_path': input_path,
+                            'output_path': output_path,
+                            'features_count': len(orb_features[0]) if orb_features[0] else 0,
+                            'intermediate_dir': intermediate_dir
+                        })
+                        results['stats']['success'] += 1
+                        
+                        # 同步删除输入文件
+                        if sync_deletion:
+                            try:
+                                os.remove(input_path)
+                                results['deleted'].append(input_path)
+                                results['stats']['deleted'] += 1
+                                print(f"✓ 已删除输入文件: {input_path}")
+                            except Exception as e:
+                                print(f"❌ 删除输入文件失败: {input_path}, 错误: {e}")
+                    else:
+                        results['failed'].append({
+                            'filename': filename,
+                            'input_path': input_path,
+                            'error': 'Processing failed'
+                        })
+                        results['stats']['failed'] += 1
+                    
+                    results['stats']['total'] += 1
+        
+        # 输出统计信息
+        print(f"\n批量处理完成:")
+        print(f"  - 总计: {results['stats']['total']} 个文件")
+        print(f"  - 成功: {results['stats']['success']} 个文件")
+        print(f"  - 失败: {results['stats']['failed']} 个文件")
+        print(f"  - 删除: {results['stats']['deleted']} 个文件")
+        
+        return results
+
+    def batch_process_directory_with_smart_deletion(self, input_dir: str, output_dir: str,
+                                           existing_output_files: set, save_intermediate=False) -> dict:
+        """批量处理目录中的图像，使用智能删除逻辑
+        
+        Args:
+            input_dir: 输入目录
+            output_dir: 输出目录
+            existing_output_files: 输出目录中已存在的文件名集合
+            save_intermediate: 是否保存中间处理结果
+            
+        Returns:
+            处理结果字典
+        """
+        results = {
+            'processed': [],
+            'failed': [],
+            'deleted': [],
+            'skipped': [],
+            'stats': {
+                'total': 0,
+                'success': 0,
+                'failed': 0,
+                'deleted': 0,
+                'skipped': 0
+            }
+        }
+        
+        # 确保输出目录存在
+        os.makedirs(output_dir, exist_ok=True)
+        
+        # 处理所有图像文件
+        for filename in os.listdir(input_dir):
+            if filename.lower().endswith(('.png', '.jpg', '.jpeg', '.webp')):
+                input_path = os.path.join(input_dir, filename)
+                
+                # 检查输出目录中是否已存在同名文件
+                output_filename = os.path.splitext(filename)[0] + '.jpg'  # 统一转换为JPG格式
+                output_path = os.path.join(output_dir, output_filename)
+                
+                # 创建单独的输出目录用于中间结果
+                if save_intermediate:
+                    intermediate_dir = os.path.join(output_dir,
+                                                f"intermediate_{os.path.splitext(filename)[0]}")
+                else:
+                    intermediate_dir = None
+                
+                # 检查是否已存在处理结果
+                if output_filename in existing_output_files and os.path.exists(output_path):
+                    # 第二次处理：删除原始文件
+                    try:
+                        os.remove(input_path)
+                        results['deleted'].append({
+                            'filename': filename,
+                            'input_path': input_path,
+                            'reason': '已存在处理结果'
+                        })
+                        results['stats']['deleted'] += 1
+                        print(f"✓ 删除已处理的原始文件: {filename}")
+                        continue
+                    except Exception as e:
+                        print(f"❌ 删除原始文件失败: {filename}, 错误: {e}")
+                        results['failed'].append({
+                            'filename': filename,
+                            'input_path': input_path,
+                            'error': f'删除失败: {e}'
+                        })
+                        results['stats']['failed'] += 1
+                
+                # 处理图像
+                processed_image, orb_features = self.process_image(
+                    input_path, save_intermediate, intermediate_dir
+                )
+                
+                if processed_image is not None:
+                    # 保存最终处理结果为JPG格式
+                    cv2.imwrite(output_path, processed_image, [int(cv2.IMWRITE_JPEG_QUALITY), 95])
+                    
+                    results['processed'].append({
+                        'filename': output_filename,
+                        'input_path': input_path,
+                        'output_path': output_path,
+                        'features_count': len(orb_features[0]) if orb_features[0] else 0,
+                        'intermediate_dir': intermediate_dir,
+                        'deleted': False  # 首次处理不删除
+                    })
+                    results['stats']['success'] += 1
+                    print(f"✓ 处理成功: {filename} -> {output_filename}")
+                else:
+                    results['failed'].append({
+                        'filename': filename,
+                        'input_path': input_path,
+                        'error': 'Processing failed'
+                    })
+                    results['stats']['failed'] += 1
+                
+                results['stats']['total'] += 1
+        
+        # 输出统计信息
+        print(f"\n批量处理完成:")
+        print(f"  - 总计: {results['stats']['total']} 个文件")
+        print(f"  - 成功: {results['stats']['success']} 个文件")
+        print(f"  - 失败: {results['stats']['failed']} 个文件")
+        print(f"  - 删除: {results['stats']['deleted']} 个文件")
+        print(f"  - 跳过: {results['stats']['skipped']} 个文件")
+        
+        return results
+
+    def batch_process_directory(self, input_dir: str, output_dir: str,
                            save_intermediate=False) -> dict:
         """批量处理目录中的图像
         
@@ -208,9 +427,12 @@ class PreprocessPipeline:
                 )
                 
                 if processed_image is not None:
-                    # 保存最终处理结果
+                    # 保存最终处理结果为JPG格式
                     output_path = os.path.join(output_dir, filename)
-                    cv2.imwrite(output_path, processed_image)
+                    # 确保文件扩展名为.jpg
+                    if not output_path.lower().endswith('.jpg'):
+                        output_path = os.path.splitext(output_path)[0] + '.jpg'
+                    cv2.imwrite(output_path, processed_image, [int(cv2.IMWRITE_JPEG_QUALITY), 95])
                     
                     results['processed'].append({
                         'filename': filename,

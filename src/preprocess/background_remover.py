@@ -10,6 +10,51 @@ import numpy as np
 from PIL import Image, ImageDraw
 from typing import Tuple, Optional
 
+# 导入统一的背景掩码函数
+try:
+    from ..utils.background_mask import create_background_mask
+except ImportError:
+    try:
+        from utils.background_mask import create_background_mask
+    except ImportError:
+        print("⚠️ 无法导入统一的背景掩码函数，将使用本地定义")
+        # 如果无法导入，定义一个本地函数作为后备
+        def create_background_mask(image, target_color_bgr=(46, 33, 46), tolerance=20):
+            """本地后备的背景掩码函数"""
+            try:
+                # 创建颜色范围掩码
+                lower_bound = np.array([
+                    max(0, target_color_bgr[0] - tolerance),
+                    max(0, target_color_bgr[1] - tolerance),
+                    max(0, target_color_bgr[2] - tolerance)
+                ])
+                upper_bound = np.array([
+                    min(255, target_color_bgr[0] + tolerance),
+                    min(255, target_color_bgr[1] + tolerance),
+                    min(255, target_color_bgr[2] + tolerance)
+                ])
+                
+                mask_bg = cv2.inRange(image, lower_bound, upper_bound)
+                
+                # 创建浅紫色掩码
+                light_purple_lower = np.array([241, 240, 241])
+                light_purple_upper = np.array([247, 250, 247])
+                mask_light_purple = cv2.inRange(image, light_purple_lower, light_purple_upper)
+                
+                # 合并掩码
+                mask_combined = cv2.bitwise_or(mask_bg, mask_light_purple)
+                
+                # 应用轻微高斯模糊
+                mask_combined = cv2.GaussianBlur(mask_combined, (3, 3), 0.1)
+                
+                # 二值化
+                _, mask_combined = cv2.threshold(mask_combined, 200, 255, cv2.THRESH_BINARY)
+                
+                return mask_combined
+            except Exception as e:
+                print(f"[ERROR] 背景掩码创建失败: {e}")
+                return np.zeros((image.shape[0], image.shape[1]), dtype=np.uint8)
+
 
 class BackgroundRemover:
     """背景去除器类
@@ -17,8 +62,13 @@ class BackgroundRemover:
     专门处理游戏装备图标的圆形背景去除
     """
     
-    def __init__(self):
-        """初始化背景去除器"""
+    def __init__(self, config=None):
+        """初始化背景去除器
+        
+        Args:
+            config: 背景去除配置字典
+        """
+        self.config = config or {}
         print(f"✓ 背景去除器初始化完成")
     
     def remove_circular_background(self, image: np.ndarray) -> np.ndarray:
@@ -31,38 +81,28 @@ class BackgroundRemover:
             去除背景后的图像
         """
         try:
-            # 转换为灰度图
-            if len(image.shape) == 3:
-                gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
-            else:
-                gray = image
+            # 1. 转为灰度图
+            gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY) if len(image.shape) == 3 else image
             
-            # 应用高斯模糊减少噪声
-            blurred = cv2.GaussianBlur(gray, (5, 5), 0)
+            # 2. 高斯模糊（减小核大小，避免边缘模糊）
+            kernel = tuple(self.config.get('gaussian_blur_kernel', [3, 3]))
+            blurred = cv2.GaussianBlur(gray, kernel, 0)
             
-            # 使用Canny边缘检测
-            edges = cv2.Canny(blurred, 50, 150)
+            # 3. Canny边缘检测（调整阈值，保留装备边缘）
+            edges = cv2.Canny(blurred, self.config.get('canny_threshold1', 40),
+                             self.config.get('canny_threshold2', 120))
             
-            # 查找轮廓
-            contours, _ = cv2.findContours(edges, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+            # 4. 形态学优化（先闭运算填补缺口，再开运算去噪声）
+            morph_kernel = np.ones(tuple(self.config.get('morph_kernel_size', [5, 5])), np.uint8)
+            # 闭运算：填补背景中的小缺口（避免装备内部被误判为背景）
+            closed = cv2.morphologyEx(edges, cv2.MORPH_CLOSE, morph_kernel,
+                                     iterations=self.config.get('morph_close_iterations', 2))
+            # 开运算：去除背景中的微小噪声（不影响装备轮廓）
+            opened = cv2.morphologyEx(closed, cv2.MORPH_OPEN, morph_kernel,
+                                     iterations=self.config.get('morph_open_iterations', 1))
             
-            if not contours:
-                print("⚠️ 未检测到轮廓，返回原图像")
-                return image
-            
-            # 找到最大的轮廓（假设为装备图标）
-            largest_contour = max(contours, key=cv2.contourArea)
-            
-            # 创建掩码
-            mask = np.zeros(gray.shape, dtype=np.uint8)
-            cv2.fillPoly(mask, [largest_contour], 255)
-            
-            # 应用形态学操作优化掩码
-            kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (5, 5))
-            mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, kernel)
-            mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN, kernel)
-            
-            # 使用掩码提取前景
+            # 5. 提取掩码并去除背景
+            mask = cv2.threshold(opened, 127, 255, cv2.THRESH_BINARY)[1]
             result = cv2.bitwise_and(image, image, mask=mask)
             
             return result
@@ -158,11 +198,9 @@ class BackgroundRemover:
             return initial_mask
 
 
-def test_background_remover():
-    """测试背景去除器"""
-    print("=" * 60)
-    print("背景去除器测试")
-    print("=" * 60)
+if __name__ == "__main__":
+    # 简单的示例用法
+    import os
     
     # 创建测试图像
     test_image = np.zeros((200, 200, 3), dtype=np.uint8)
@@ -206,7 +244,3 @@ def test_background_remover():
             os.remove("test_background_removed.png")
     except:
         pass
-
-
-if __name__ == "__main__":
-    test_background_remover()

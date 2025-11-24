@@ -16,8 +16,18 @@ class ImageEnhancer:
     提供针对游戏装备图标的图像增强功能
     """
     
-    def __init__(self):
-        """初始化图像增强器"""
+    def __init__(self, config=None):
+        """初始化图像增强器
+        
+        Args:
+            config: 预处理配置字典
+        """
+        self.config = config or {}
+        # 初始化CLAHE（限制对比度自适应直方图均衡化）
+        self.clahe = cv2.createCLAHE(
+            clipLimit=self.config.get('clahe_clip_limit', 1.5),
+            tileGridSize=tuple(self.config.get('clahe_grid_size', [10, 10]))
+        )
         print(f"✓ 图像增强器初始化完成")
     
     def enhance_for_feature_detection(self, image: np.ndarray) -> np.ndarray:
@@ -30,29 +40,60 @@ class ImageEnhancer:
             增强后的图像
         """
         try:
-            # 确保是灰度图
-            if len(image.shape) == 3:
-                gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
-            else:
-                gray = image.copy()
+            # 1. 转为灰度图
+            gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY) if len(image.shape) == 3 else image
             
-            # 1. 直方图均衡化增强对比度
-            equalized = cv2.equalizeHist(gray)
+            # 2. 高斯模糊（去噪）
+            if self.config.get('gaussian_blur', True):
+                kernel = tuple(self.config.get('gaussian_kernel', [5, 5]))
+                gray = cv2.GaussianBlur(gray, kernel, sigmaX=self.config.get('gaussian_sigma', 1.0))
             
-            # 2. 高斯模糊减少噪声
-            blurred = cv2.GaussianBlur(equalized, (3, 3), 0)
+            # 3. 增强：CLAHE + 自适应直方图均衡化（保留细节+提升对比度）
+            if self.config.get('clahe_enhancement', True):
+                # 先做CLAHE增强
+                clahe_img = self.clahe.apply(gray)
+                # 再做自适应直方图均衡化（进一步优化局部对比度）
+                adaptive_eq = cv2.equalizeHist(clahe_img)
+                # 融合增强结果（避免过增强）
+                gray = cv2.addWeighted(clahe_img, 0.7, adaptive_eq, 0.3, 0)
             
-            # 3. Canny边缘检测增强特征
-            canny = cv2.Canny(blurred, 30, 120)
+            # 4. 边缘检测（核心优化：自适应阈值）
+            if self.config.get('canny_edges', True):
+                if self.config.get('canny_use_adaptive_threshold', True):
+                    # 自适应阈值：基于图像灰度分布动态计算阈值
+                    block_size = self.config.get('canny_adaptive_block_size', 15)
+                    C = self.config.get('canny_adaptive_C', 7)
+                    
+                    # 计算图像的全局均值和标准差
+                    mean_val = np.mean(gray)
+                    std_val = np.std(gray)
+                    
+                    # 基于统计信息动态计算阈值
+                    high_thresh = min(mean_val + std_val + C, 255)
+                    low_thresh = max(high_thresh // 2, 30)
+                    
+                    # 确保阈值在合理范围内
+                    high_thresh = max(min(high_thresh, 200), 50)
+                    low_thresh = max(min(low_thresh, 100), 20)
+                    
+                    edges = cv2.Canny(gray, low_thresh, high_thresh)
+                else:
+                    # 兼容固定阈值（备用）
+                    edges = cv2.Canny(gray, self.config.get('canny_low_threshold', 50),
+                                     self.config.get('canny_high_threshold', 150))
+                
+                # 5. 形态学后处理（填补轮廓缺口、去噪声）
+                if self.config.get('morphology_post_process', True):
+                    kernel = np.ones(tuple(self.config.get('morphology_kernel', [3, 3])), np.uint8)
+                    # 先膨胀（扩大轮廓，填补缺口），再腐蚀（恢复原尺寸，去噪声）
+                    edges = cv2.morphologyEx(edges, cv2.MORPH_DILATE, kernel,
+                                            iterations=self.config.get('morphology_iterations', 1))
+                    edges = cv2.morphologyEx(edges, cv2.MORPH_ERODE, kernel,
+                                            iterations=self.config.get('morphology_iterations', 1))
             
-            # 4. 形态学操作增强边缘
-            kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (3, 3))
-            morphed = cv2.morphologyEx(canny, cv2.MORPH_CLOSE, kernel)
-            
-            # 5. 结合原图像和边缘信息
-            enhanced = cv2.addWeighted(equalized, 0.7, morphed, 0.3, 0)
-            
-            return enhanced
+            # 6. 融合增强图和边缘图（让轮廓更突出）
+            enhanced_image = cv2.addWeighted(gray, 0.8, edges, 0.2, 0)
+            return enhanced_image
             
         except Exception as e:
             print(f"❌ 图像增强失败: {e}")
