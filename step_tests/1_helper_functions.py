@@ -23,25 +23,25 @@ project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
 if project_root not in sys.path:
     sys.path.insert(0, project_root)
 
-# 导入节点日志管理器
+# 导入新的步骤日志管理器
 try:
-    from src.node_logger import get_logger, init_logger_from_config
-    from src.config_manager import get_config_manager
-    NODE_LOGGER_AVAILABLE = True
+    from src.step_logger import get_step_logger
+    from src.report_generator import get_report_generator
+    LOGGER_AVAILABLE = True
 except ImportError:
     try:
-        from node_logger import get_logger, init_logger_from_config
-        from config_manager import get_config_manager
-        NODE_LOGGER_AVAILABLE = True
+        from step_logger import get_step_logger
+        from report_generator import get_report_generator
+        LOGGER_AVAILABLE = True
     except ImportError:
-        NODE_LOGGER_AVAILABLE = False
-        print("⚠️ 节点日志管理器不可用，使用默认输出")
+        LOGGER_AVAILABLE = False
+        print("⚠️ 步骤日志管理器不可用，使用默认输出")
 
 def check_dependencies():
     """检查依赖是否已安装"""
-    if NODE_LOGGER_AVAILABLE:
-        logger = get_logger()
-        logger.start_node("系统依赖检查", "🔍")
+    if LOGGER_AVAILABLE:
+        logger = get_step_logger()
+        logger.start_step("step1_helper", "系统依赖检查")
     else:
         print("检查系统依赖...")
     
@@ -56,19 +56,19 @@ def check_dependencies():
                 from PIL import Image
             elif package == 'numpy':
                 import numpy
-            if NODE_LOGGER_AVAILABLE:
+            if LOGGER_AVAILABLE:
                 logger.log_success(f"{package}")
             else:
                 print(f"✓ {package}")
         except ImportError:
             missing_packages.append(package)
-            if NODE_LOGGER_AVAILABLE:
+            if LOGGER_AVAILABLE:
                 logger.log_error(f"{package}")
             else:
                 print(f"✗ {package}")
     
     if missing_packages:
-        if NODE_LOGGER_AVAILABLE:
+        if LOGGER_AVAILABLE:
             logger.log_info(f"缺少依赖包: {', '.join(missing_packages)}")
             logger.log_info("正在安装依赖...")
         else:
@@ -77,35 +77,42 @@ def check_dependencies():
         
         try:
             subprocess.check_call([sys.executable, "-m", "pip", "install", "-r", "requirements.txt"])
-            if NODE_LOGGER_AVAILABLE:
+            if LOGGER_AVAILABLE:
                 logger.log_success("依赖安装完成")
-                logger.end_node("✅")
+                logger.end_step("step1_helper", "完成")
             else:
                 print("✓ 依赖安装完成")
             return True
         except subprocess.CalledProcessError:
-            if NODE_LOGGER_AVAILABLE:
+            if LOGGER_AVAILABLE:
                 logger.log_error("依赖安装失败，请手动运行: pip install -r requirements.txt")
-                logger.end_node("❌")
+                logger.end_step("step1_helper", "失败")
             else:
                 print("✗ 依赖安装失败，请手动运行: pip install -r requirements.txt")
             return False
     else:
-        if NODE_LOGGER_AVAILABLE:
+        if LOGGER_AVAILABLE:
             logger.log_success("所有依赖已安装")
-            logger.end_node("✅")
+            logger.end_step("step1_helper", "完成")
         else:
             print("✓ 所有依赖已安装")
         return True
 
 def check_data_files():
     """检查数据文件是否存在"""
-    print("\n检查数据文件...")
+    if LOGGER_AVAILABLE:
+        logger = get_step_logger()
+        logger.start_step("step1_helper", "数据文件检查")
+    else:
+        print("\n检查数据文件...")
     
     # 检查基准装备图目录
     base_equipment_dir = "images/base_equipment"
     if not os.path.exists(base_equipment_dir):
-        print(f"✗ 缺少基准装备图目录: {base_equipment_dir}")
+        if LOGGER_AVAILABLE:
+            logger.log_error(f"缺少基准装备图目录: {base_equipment_dir}")
+        else:
+            print(f"✗ 缺少基准装备图目录: {base_equipment_dir}")
         return False
     
     # 检查目录中的基准装备图文件
@@ -115,17 +122,28 @@ def check_data_files():
             base_image_files.append(filename)
     
     if not base_image_files:
-        print(f"✗ 基准装备图目录为空: {base_equipment_dir}")
+        if LOGGER_AVAILABLE:
+            logger.log_error(f"基准装备图目录为空: {base_equipment_dir}")
+        else:
+            print(f"✗ 基准装备图目录为空: {base_equipment_dir}")
         return False
     else:
-        print(f"✓ 找到 {len(base_image_files)} 个基准装备图文件:")
-        for filename in sorted(base_image_files):
-            print(f"  - {filename}")
+        if LOGGER_AVAILABLE:
+            logger.log_info(f"找到 {len(base_image_files)} 个基准装备图文件")
+            for filename in sorted(base_image_files):
+                logger.log_info(f"  - {filename}")
+        else:
+            print(f"✓ 找到 {len(base_image_files)} 个基准装备图文件:")
+            for filename in sorted(base_image_files):
+                print(f"  - {filename}")
     
     # 检查游戏截图目录
     game_screenshots_dir = "images/game_screenshots"
     if not os.path.exists(game_screenshots_dir):
-        print(f"✗ 缺少游戏截图目录: {game_screenshots_dir}")
+        if LOGGER_AVAILABLE:
+            logger.log_error(f"缺少游戏截图目录: {game_screenshots_dir}")
+        else:
+            print(f"✗ 缺少游戏截图目录: {game_screenshots_dir}")
         return False
     
     # 检查目录中的游戏截图文件
@@ -135,16 +153,27 @@ def check_data_files():
             screenshot_files.append(filename)
     
     if not screenshot_files:
-        print(f"⚠️ 游戏截图目录为空: {game_screenshots_dir}")
+        if LOGGER_AVAILABLE:
+            logger.log_warning(f"游戏截图目录为空: {game_screenshots_dir}")
+        else:
+            print(f"⚠️ 游戏截图目录为空: {game_screenshots_dir}")
     else:
-        print(f"✓ 找到 {len(screenshot_files)} 个游戏截图文件:")
-        for filename in sorted(screenshot_files):
-            print(f"  - {filename}")
+        if LOGGER_AVAILABLE:
+            logger.log_info(f"找到 {len(screenshot_files)} 个游戏截图文件")
+            for filename in sorted(screenshot_files):
+                logger.log_info(f"  - {filename}")
+        else:
+            print(f"✓ 找到 {len(screenshot_files)} 个游戏截图文件:")
+            for filename in sorted(screenshot_files):
+                print(f"  - {filename}")
     
     # 检查切割装备目录
     cropped_equipment_dir = "images/cropped_equipment"
     if not os.path.exists(cropped_equipment_dir):
-        print(f"⚠️ 切割装备目录不存在，将在步骤2中创建: {cropped_equipment_dir}")
+        if LOGGER_AVAILABLE:
+            logger.log_warning(f"切割装备目录不存在，将在步骤2中创建: {cropped_equipment_dir}")
+        else:
+            print(f"⚠️ 切割装备目录不存在，将在步骤2中创建: {cropped_equipment_dir}")
         os.makedirs(cropped_equipment_dir, exist_ok=True)
     else:
         cropped_files = []
@@ -153,34 +182,62 @@ def check_data_files():
                 cropped_files.append(filename)
         
         if not cropped_files:
-            print(f"⚠️ 切割装备目录为空: {cropped_equipment_dir}")
+            if LOGGER_AVAILABLE:
+                logger.log_warning(f"切割装备目录为空: {cropped_equipment_dir}")
+            else:
+                print(f"⚠️ 切割装备目录为空: {cropped_equipment_dir}")
         else:
-            print(f"✓ 找到 {len(cropped_files)} 个切割装备文件:")
-            for filename in sorted(cropped_files)[:5]:  # 只显示前5个
-                print(f"  - {filename}")
-            if len(cropped_files) > 5:
-                print(f"  ... 还有 {len(cropped_files) - 5} 个文件")
+            if LOGGER_AVAILABLE:
+                logger.log_info(f"找到 {len(cropped_files)} 个切割装备文件")
+                for filename in sorted(cropped_files)[:5]:  # 只显示前5个
+                    logger.log_info(f"  - {filename}")
+                if len(cropped_files) > 5:
+                    logger.log_info(f"  ... 还有 {len(cropped_files) - 5} 个文件")
+            else:
+                print(f"✓ 找到 {len(cropped_files)} 个切割装备文件:")
+                for filename in sorted(cropped_files)[:5]:  # 只显示前5个
+                    print(f"  - {filename}")
+                if len(cropped_files) > 5:
+                    print(f"  ... 还有 {len(cropped_files) - 5} 个文件")
+    
+    if LOGGER_AVAILABLE:
+        logger.end_step("step1_helper", "完成")
     
     return True
 
 def clear_previous_results():
     """清理之前的结果，保留主文件"""
-    print("\n" + "=" * 60)
-    print("清理切割结果和日志")
-    print("=" * 60)
-    print("此操作将清理切割后的装备和旧的日志文件")
-    print("-" * 60)
+    if LOGGER_AVAILABLE:
+        logger = get_step_logger()
+        logger.start_step("step1_helper", "清理切割结果和日志")
+    else:
+        print("\n" + "=" * 60)
+        print("清理切割结果和日志")
+        print("=" * 60)
+        print("此操作将清理切割后的装备和旧的日志文件")
+        print("-" * 60)
     
     # 确认操作
-    print("确认要清理以下内容吗？")
-    print("1. 切割装备目录 (images/cropped_equipment)")
-    print("2. 带圆形标记副本目录 (images/cropped_equipment_marker)")
-    print("3. 旧的日志文件 (recognition_logs)")
-    print("注意：最新的日志文件将被保留")
+    if LOGGER_AVAILABLE:
+        logger.log_info("确认要清理以下内容吗？")
+        logger.log_info("1. 切割装备目录 (images/cropped_equipment)")
+        logger.log_info("2. 带圆形标记副本目录 (images/cropped_equipment_marker)")
+        logger.log_info("3. 旧的日志文件 (recognition_logs)")
+        logger.log_info("注意：最新的日志文件将被保留")
+    else:
+        print("确认要清理以下内容吗？")
+        print("1. 切割装备目录 (images/cropped_equipment)")
+        print("2. 带圆形标记副本目录 (images/cropped_equipment_marker)")
+        print("3. 旧的日志文件 (recognition_logs)")
+        print("注意：最新的日志文件将被保留")
     
     confirm = input("\n确认清理？(y/n): ").strip().lower()
     if confirm != 'y':
-        print("已取消清理操作")
+        if LOGGER_AVAILABLE:
+            logger.log_info("已取消清理操作")
+            logger.end_step("step1_helper", "已取消")
+        else:
+            print("已取消清理操作")
         return
     
     # 清理切割后的装备
@@ -195,8 +252,14 @@ def clear_previous_results():
                     elif os.path.isdir(file_path):
                         shutil.rmtree(file_path)
                 except Exception as e:
-                    print(f"删除文件 {file_path} 时出错: {e}")
-            print(f"✓ 已清理 {cropped_dir} 目录")
+                    if LOGGER_AVAILABLE:
+                        logger.log_error(f"删除文件 {file_path} 时出错: {e}")
+                    else:
+                        print(f"删除文件 {file_path} 时出错: {e}")
+            if LOGGER_AVAILABLE:
+                logger.log_success(f"已清理 {cropped_dir} 目录")
+            else:
+                print(f"✓ 已清理 {cropped_dir} 目录")
         except Exception as e:
             print(f"清理 {cropped_dir} 目录时出错: {e}")
     
@@ -212,8 +275,14 @@ def clear_previous_results():
                     elif os.path.isdir(file_path):
                         shutil.rmtree(file_path)
                 except Exception as e:
-                    print(f"删除marker文件 {file_path} 时出错: {e}")
-            print(f"✓ 已清理 {marker_dir} 目录")
+                    if LOGGER_AVAILABLE:
+                        logger.log_error(f"删除marker文件 {file_path} 时出错: {e}")
+                    else:
+                        print(f"删除marker文件 {file_path} 时出错: {e}")
+            if LOGGER_AVAILABLE:
+                logger.log_success(f"已清理 {marker_dir} 目录")
+            else:
+                print(f"✓ 已清理 {marker_dir} 目录")
         except Exception as e:
             print(f"清理 {marker_dir} 目录时出错: {e}")
     
@@ -229,25 +298,48 @@ def clear_previous_results():
                     try:
                         os.remove(os.path.join(logs_dir, log_file))
                     except Exception as e:
-                        print(f"删除日志文件 {log_file} 时出错: {e}")
-                print(f"✓ 已清理旧日志文件，保留最新的: {log_files[0]}")
+                        if LOGGER_AVAILABLE:
+                            logger.log_error(f"删除日志文件 {log_file} 时出错: {e}")
+                        else:
+                            print(f"删除日志文件 {log_file} 时出错: {e}")
+                if LOGGER_AVAILABLE:
+                    logger.log_success(f"已清理旧日志文件，保留最新的: {log_files[0]}")
+                else:
+                    print(f"✓ 已清理旧日志文件，保留最新的: {log_files[0]}")
             elif log_files:
-                print(f"✓ 只有一个日志文件，保留: {log_files[0]}")
+                if LOGGER_AVAILABLE:
+                    logger.log_info(f"只有一个日志文件，保留: {log_files[0]}")
+                else:
+                    print(f"✓ 只有一个日志文件，保留: {log_files[0]}")
             else:
-                print("✓ 日志目录为空")
+                if LOGGER_AVAILABLE:
+                    logger.log_info("日志目录为空")
+                else:
+                    print("✓ 日志目录为空")
         except Exception as e:
-            print(f"清理日志目录时出错: {e}")
+            if LOGGER_AVAILABLE:
+                logger.log_error(f"清理日志目录时出错: {e}")
+            else:
+                print(f"清理日志目录时出错: {e}")
     
-    print("\n✅ 清理完成！")
+    if LOGGER_AVAILABLE:
+        logger.log_success("清理完成")
+        logger.end_step("step1_helper", "完成")
+    else:
+        print("\n✅ 清理完成！")
 
 
 def test_v2_optimizations():
     """测试V2.0优化功能"""
-    print("\n" + "=" * 60)
-    print("测试V2.0优化功能")
-    print("=" * 60)
-    print("此功能将测试所有V2.0版本的优化功能")
-    print("-" * 60)
+    if LOGGER_AVAILABLE:
+        logger = get_step_logger()
+        logger.start_step("step1_helper", "V2.0优化功能测试")
+    else:
+        print("\n" + "=" * 60)
+        print("测试V2.0优化功能")
+        print("=" * 60)
+        print("此功能将测试所有V2.0版本的优化功能")
+        print("-" * 60)
     
     test_results = []
     
@@ -406,7 +498,11 @@ def test_v2_optimizations():
             from src.debug.visual_debugger import VisualDebugger
             
             # 创建临时目录进行测试
-            temp_dir = tempfile.mkdtemp()
+            if LOGGER_AVAILABLE:
+                temp_dir = logger.get_step_dir("step1_helper") / "temp_files" / "matcher_test"
+                temp_dir.mkdir(parents=True, exist_ok=True)
+            else:
+                temp_dir = tempfile.mkdtemp()
             
             debugger = VisualDebugger(debug_dir=temp_dir, enable_debug=True)
             
@@ -516,32 +612,55 @@ def test_v2_optimizations():
             test_results.append(("ORB特征点优化", False))
         
     except Exception as e:
-        print(f"❌ V2.0优化测试过程中出错: {e}")
+        if LOGGER_AVAILABLE:
+            logger.log_error(f"V2.0优化测试过程中出错: {e}")
+        else:
+            print(f"❌ V2.0优化测试过程中出错: {e}")
         test_results.append(("测试执行", False))
     
     # 输出测试结果
-    print("\n" + "=" * 60)
-    print("V2.0优化测试结果汇总")
-    print("=" * 60)
-    
-    passed = 0
-    total = len(test_results)
-    
-    for test_name, result in test_results:
-        status = "✓ 通过" if result else "✗ 失败"
-        print(f"{test_name:20} {status}")
-        if result:
-            passed += 1
-    
-    print("-" * 60)
-    print(f"总计: {passed}/{total} 个测试通过")
-    
-    if passed == total:
-        print("🎉 V2.0优化功能测试全部通过！")
-        return True
+    if LOGGER_AVAILABLE:
+        passed = sum(1 for _, result in test_results if result)
+        total = len(test_results)
+        
+        logger.log_info(f"总计: {passed}/{total} 个测试通过")
+        
+        # 生成报告
+        stats = logger.get_step_stats("step1_helper")
+        additional_info = {
+            "files_processed": [name for name, _ in test_results],
+            "test_results": test_results
+        }
+        
+        report_generator = get_report_generator()
+        report_generator.generate_step_report("step1_helper", stats, additional_info)
+        
+        logger.end_step("step1_helper", "完成" if passed == total else "部分失败")
+        
+        return passed == total
     else:
-        print("⚠️ 部分测试失败，请检查相关功能。")
-        return False
+        print("\n" + "=" * 60)
+        print("V2.0优化测试结果汇总")
+        print("=" * 60)
+        
+        passed = 0
+        total = len(test_results)
+        
+        for test_name, result in test_results:
+            status = "✓ 通过" if result else "✗ 失败"
+            print(f"{test_name:20} {status}")
+            if result:
+                passed += 1
+        
+        print("-" * 60)
+        print(f"总计: {passed}/{total} 个测试通过")
+        
+        if passed == total:
+            print("🎉 V2.0优化功能测试全部通过！")
+            return True
+        else:
+            print("⚠️ 部分测试失败，请检查相关功能。")
+            return False
 
 def main():
     """主函数"""
