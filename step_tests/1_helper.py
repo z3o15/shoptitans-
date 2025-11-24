@@ -97,7 +97,7 @@ def check_dependencies():
         return True
 
 def check_data_files():
-    """检查数据文件是否存在"""
+    """检查数据文件是否存在 - 仅检查基础目录结构，不涉及其他步骤的输出"""
     if LOGGER_AVAILABLE:
         logger = get_step_logger()
         logger.start_step("step1_helper", "数据文件检查")
@@ -165,38 +165,8 @@ def check_data_files():
             for filename in sorted(screenshot_files):
                 print(f"  - {filename}")
     
-    # 检查切割装备目录
-    cropped_equipment_dir = "images/cropped_equipment"
-    if not os.path.exists(cropped_equipment_dir):
-        if LOGGER_AVAILABLE:
-            logger.log_warning(f"切割装备目录不存在，将在步骤2中创建: {cropped_equipment_dir}")
-        else:
-            print(f"⚠️ 切割装备目录不存在，将在步骤2中创建: {cropped_equipment_dir}")
-        os.makedirs(cropped_equipment_dir, exist_ok=True)
-    else:
-        cropped_files = []
-        for filename in os.listdir(cropped_equipment_dir):
-            if filename.lower().endswith(('.png', '.jpg', '.jpeg', '.webp')):
-                cropped_files.append(filename)
-        
-        if not cropped_files:
-            if LOGGER_AVAILABLE:
-                logger.log_warning(f"切割装备目录为空: {cropped_equipment_dir}")
-            else:
-                print(f"⚠️ 切割装备目录为空: {cropped_equipment_dir}")
-        else:
-            if LOGGER_AVAILABLE:
-                logger.log_info(f"找到 {len(cropped_files)} 个切割装备文件")
-                for filename in sorted(cropped_files)[:5]:  # 只显示前5个
-                    logger.log_info(f"  - {filename}")
-                if len(cropped_files) > 5:
-                    logger.log_info(f"  ... 还有 {len(cropped_files) - 5} 个文件")
-            else:
-                print(f"✓ 找到 {len(cropped_files)} 个切割装备文件:")
-                for filename in sorted(cropped_files)[:5]:  # 只显示前5个
-                    print(f"  - {filename}")
-                if len(cropped_files) > 5:
-                    print(f"  ... 还有 {len(cropped_files) - 5} 个文件")
+    # 注释掉切割装备目录检查，这属于步骤2的功能
+    # 切割装备目录的检查应该由步骤2自己负责
     
     if LOGGER_AVAILABLE:
         logger.end_step("step1_helper", "完成")
@@ -204,29 +174,25 @@ def check_data_files():
     return True
 
 def clear_previous_results():
-    """清理之前的结果，保留主文件"""
+    """清理之前的结果，保留主文件 - 仅清理日志文件，不涉及其他步骤的输出"""
     if LOGGER_AVAILABLE:
         logger = get_step_logger()
-        logger.start_step("step1_helper", "清理切割结果和日志")
+        logger.start_step("step1_helper", "清理日志文件")
     else:
         print("\n" + "=" * 60)
-        print("清理切割结果和日志")
+        print("清理日志文件")
         print("=" * 60)
-        print("此操作将清理切割后的装备和旧的日志文件")
+        print("此操作将清理旧的日志文件")
         print("-" * 60)
     
     # 确认操作
     if LOGGER_AVAILABLE:
         logger.log_info("确认要清理以下内容吗？")
-        logger.log_info("1. 切割装备目录 (images/cropped_equipment)")
-        logger.log_info("2. 带圆形标记副本目录 (images/cropped_equipment_marker)")
-        logger.log_info("3. 旧的日志文件 (recognition_logs)")
+        logger.log_info("1. 旧的日志文件 (recognition_logs)")
         logger.log_info("注意：最新的日志文件将被保留")
     else:
         print("确认要清理以下内容吗？")
-        print("1. 切割装备目录 (images/cropped_equipment)")
-        print("2. 带圆形标记副本目录 (images/cropped_equipment_marker)")
-        print("3. 旧的日志文件 (recognition_logs)")
+        print("1. 旧的日志文件 (recognition_logs)")
         print("注意：最新的日志文件将被保留")
     
     confirm = input("\n确认清理？(y/n): ").strip().lower()
@@ -238,51 +204,53 @@ def clear_previous_results():
             print("已取消清理操作")
         return
     
+    # 注释掉切割装备目录的清理，这属于步骤2的功能
     # 清理切割后的装备
-    cropped_dir = "images/cropped_equipment"
-    if os.path.exists(cropped_dir):
-        try:
-            for filename in os.listdir(cropped_dir):
-                file_path = os.path.join(cropped_dir, filename)
-                try:
-                    if os.path.isfile(file_path):
-                        os.unlink(file_path)
-                    elif os.path.isdir(file_path):
-                        shutil.rmtree(file_path)
-                except Exception as e:
-                    if LOGGER_AVAILABLE:
-                        logger.log_error(f"删除文件 {file_path} 时出错: {e}")
-                    else:
-                        print(f"删除文件 {file_path} 时出错: {e}")
-            if LOGGER_AVAILABLE:
-                logger.log_success(f"已清理 {cropped_dir} 目录")
-            else:
-                print(f"✓ 已清理 {cropped_dir} 目录")
-        except Exception as e:
-            print(f"清理 {cropped_dir} 目录时出错: {e}")
+    # cropped_dir = "images/cropped_equipment"
+    # if os.path.exists(cropped_dir):
+    #     try:
+    #         for filename in os.listdir(cropped_dir):
+    #             file_path = os.path.join(cropped_dir, filename)
+    #             try:
+    #                 if os.path.isfile(file_path):
+    #                     os.unlink(file_path)
+    #                 elif os.path.isdir(file_path):
+    #                     shutil.rmtree(file_path)
+    #             except Exception as e:
+    #                 if LOGGER_AVAILABLE:
+    #                     logger.log_error(f"删除文件 {file_path} 时出错: {e}")
+    #                 else:
+    #                     print(f"删除文件 {file_path} 时出错: {e}")
+    #         if LOGGER_AVAILABLE:
+    #             logger.log_success(f"已清理 {cropped_dir} 目录")
+    #         else:
+    #             print(f"✓ 已清理 {cropped_dir} 目录")
+    #     except Exception as e:
+    #         print(f"清理 {cropped_dir} 目录时出错: {e}")
     
+    # 注释掉marker目录的清理，这属于步骤2的功能
     # 清理marker目录
-    marker_dir = "images/cropped_equipment_marker"
-    if os.path.exists(marker_dir):
-        try:
-            for filename in os.listdir(marker_dir):
-                file_path = os.path.join(marker_dir, filename)
-                try:
-                    if os.path.isfile(file_path):
-                        os.unlink(file_path)
-                    elif os.path.isdir(file_path):
-                        shutil.rmtree(file_path)
-                except Exception as e:
-                    if LOGGER_AVAILABLE:
-                        logger.log_error(f"删除marker文件 {file_path} 时出错: {e}")
-                    else:
-                        print(f"删除marker文件 {file_path} 时出错: {e}")
-            if LOGGER_AVAILABLE:
-                logger.log_success(f"已清理 {marker_dir} 目录")
-            else:
-                print(f"✓ 已清理 {marker_dir} 目录")
-        except Exception as e:
-            print(f"清理 {marker_dir} 目录时出错: {e}")
+    # marker_dir = "images/cropped_equipment_marker"
+    # if os.path.exists(marker_dir):
+    #     try:
+    #         for filename in os.listdir(marker_dir):
+    #             file_path = os.path.join(marker_dir, filename)
+    #             try:
+    #                 if os.path.isfile(file_path):
+    #                     os.unlink(file_path)
+    #                 elif os.path.isdir(file_path):
+    #                     shutil.rmtree(file_path)
+    #             except Exception as e:
+    #                 if LOGGER_AVAILABLE:
+    #                     logger.log_error(f"删除marker文件 {file_path} 时出错: {e}")
+    #                 else:
+    #                     print(f"删除marker文件 {file_path} 时出错: {e}")
+    #         if LOGGER_AVAILABLE:
+    #             logger.log_success(f"已清理 {marker_dir} 目录")
+    #         else:
+    #             print(f"✓ 已清理 {marker_dir} 目录")
+    #     except Exception as e:
+    #         print(f"清理 {marker_dir} 目录时出错: {e}")
     
     # 清理日志目录（保留最近的一个日志文件）
     logs_dir = "recognition_logs"
@@ -328,7 +296,7 @@ def clear_previous_results():
 
 
 def test_v2_optimizations():
-    """测试V2.0优化功能"""
+    """测试V2.0优化功能 - 仅测试基础工具，不涉及其他步骤的功能"""
     if LOGGER_AVAILABLE:
         logger = get_step_logger()
         logger.start_step("step1_helper", "V2.0优化功能测试")
@@ -336,91 +304,14 @@ def test_v2_optimizations():
         print("\n" + "=" * 60)
         print("测试V2.0优化功能")
         print("=" * 60)
-        print("此功能将测试所有V2.0版本的优化功能")
+        print("此功能将测试基础工具的优化功能")
         print("-" * 60)
     
     test_results = []
     
     try:
-        # 测试1：图像预处理流水线
-        print("\n1. 测试图像预处理流水线...")
-        try:
-            import tempfile
-            import cv2
-            import numpy as np
-            from src.preprocess.preprocess_pipeline import PreprocessPipeline
-            from src.config_manager import get_config_manager
-            
-            config_manager = get_config_manager()
-            preprocess_config = config_manager.get_preprocessing_config()
-            
-            # 创建预处理流水线
-            pipeline = PreprocessPipeline(
-                target_size=tuple(preprocess_config.get('target_size', [116, 116])),
-                enable_enhancement=preprocess_config.get('enable_enhancement', True)
-            )
-            
-            # 创建测试图像并保存到临时文件
-            test_image = np.ones((100, 100, 3), dtype=np.uint8) * 128
-            temp_dir = tempfile.mkdtemp()
-            test_image_path = os.path.join(temp_dir, "test_image.png")
-            cv2.imwrite(test_image_path, test_image)
-            
-            # 测试预处理
-            processed_image, orb_features = pipeline.process_image(test_image_path)
-            # 检查处理后的图像尺寸是否正确（特征点可能为0，因为测试图像是纯色）
-            # 注意：enhance_for_feature_detection会返回灰度图像，所以可能是(116, 116)或(116, 116, 3)
-            target_shape_color = tuple(preprocess_config.get('target_size', [116, 116])) + (3,)
-            target_shape_gray = tuple(preprocess_config.get('target_size', [116, 116]))
-            
-            if processed_image is not None and (processed_image.shape == target_shape_color or processed_image.shape == target_shape_gray):
-                print("✓ 图像预处理流水线测试通过")
-                test_results.append(("图像预处理流水线", True))
-            else:
-                print(f"❌ 图像预处理流水线测试失败")
-                if processed_image is not None:
-                    print(f"  - 期望形状: {target_shape_color} 或 {target_shape_gray}, 实际形状: {processed_image.shape}")
-                else:
-                    print("  - 处理后的图像为None")
-                test_results.append(("图像预处理流水线", False))
-            
-            # 清理临时目录
-            import shutil
-            shutil.rmtree(temp_dir)
-        except Exception as e:
-            print(f"❌ 图像预处理流水线测试失败: {e}")
-            test_results.append(("图像预处理流水线", False))
-        
-        # 测试2：自动缓存更新器
-        print("\n2. 测试自动缓存更新器...")
-        try:
-            import tempfile
-            import shutil
-            from src.cache.auto_cache_updater import AutoCacheUpdater
-            
-            # 创建临时目录进行测试
-            temp_dir = tempfile.mkdtemp()
-            
-            updater = AutoCacheUpdater(
-                cache_dir=temp_dir,
-                target_size=(116, 116),
-                nfeatures=3000,
-                auto_update=True
-            )
-            
-            # 测试缓存更新检查
-            result = updater.auto_update_if_needed("images/base_equipment")
-            print("✓ 自动缓存更新器测试通过")
-            test_results.append(("自动缓存更新器", True))
-            
-            # 清理临时目录
-            shutil.rmtree(temp_dir)
-        except Exception as e:
-            print(f"❌ 自动缓存更新器测试失败: {e}")
-            test_results.append(("自动缓存更新器", False))
-        
-        # 测试3：图像哈希工具
-        print("\n3. 测试图像哈希工具...")
+        # 测试1：图像哈希工具
+        print("\n1. 测试图像哈希工具...")
         try:
             import cv2
             import numpy as np
@@ -445,169 +336,13 @@ def test_v2_optimizations():
             print(f"❌ 图像哈希工具测试失败: {e}")
             test_results.append(("图像哈希工具", False))
         
-        # 测试4：质量检测器
-        print("\n4. 测试质量检测器...")
-        try:
-            import tempfile
-            import shutil
-            import cv2
-            import numpy as np
-            from src.quality.equipment_detector import EquipmentDetector
-            from src.config_manager import get_config_manager
-            
-            # 创建测试图像
-            test_image = np.ones((100, 100, 3), dtype=np.uint8) * 128
-            
-            # 初始化检测器
-            config_manager = get_config_manager()
-            detector = EquipmentDetector(
-                target_size=tuple(config_manager.get_quality_config().get('target_size', [116, 116])),
-                min_resolution=config_manager.get_quality_config().get('min_resolution', 50)
-            )
-            
-            # 使用detect_image_quality方法
-            temp_dir = tempfile.mkdtemp()
-            test_image_path = os.path.join(temp_dir, "test.png")
-            cv2.imwrite(test_image_path, test_image)
-            
-            result = detector.detect_image_quality(test_image_path)
-            quality_score = result.get('keypoints', {}).get('keypoint_count', 0)
-            is_good_quality = result.get('is_valid', True)
-            
-            # 清理临时目录
-            shutil.rmtree(temp_dir)
-            
-            if isinstance(quality_score, (int, float)) and isinstance(is_good_quality, bool):
-                print("✓ 质量检测器测试通过")
-                test_results.append(("质量检测器", True))
-            else:
-                print("❌ 质量检测器测试失败")
-                test_results.append(("质量检测器", False))
-        except Exception as e:
-            print(f"❌ 质量检测器测试失败: {e}")
-            test_results.append(("质量检测器", False))
-        
-        # 测试5：可视化调试器
-        print("\n5. 测试可视化调试器...")
-        try:
-            import tempfile
-            import shutil
-            import numpy as np
-            from src.debug.visual_debugger import VisualDebugger
-            
-            # 创建临时目录进行测试
-            if LOGGER_AVAILABLE:
-                temp_dir = logger.get_step_dir("step1_helper") / "temp_files" / "matcher_test"
-                temp_dir.mkdir(parents=True, exist_ok=True)
-            else:
-                temp_dir = tempfile.mkdtemp()
-            
-            debugger = VisualDebugger(debug_dir=temp_dir, enable_debug=True)
-            
-            # 测试调试报告生成
-            debug_data = [{
-                'filename': 'test.png',
-                'similarity': 85.5,
-                'target_image': np.ones((100, 100, 3), dtype=np.uint8) * 128,
-                'base_image': np.ones((100, 100, 3), dtype=np.uint8) * 128,
-                'file_path': 'test.png'
-            }]
-            
-            report_path = debugger.generate_matching_report(
-                base_image_path='test.png',
-                matching_results=debug_data,
-                threshold=80.0
-            )
-            
-            if os.path.exists(report_path):
-                print("✓ 可视化调试器测试通过")
-                test_results.append(("可视化调试器", True))
-            else:
-                print("❌ 可视化调试器测试失败")
-                test_results.append(("可视化调试器", False))
-            
-            # 清理临时目录
-            shutil.rmtree(temp_dir)
-        except Exception as e:
-            print(f"❌ 可视化调试器测试失败: {e}")
-            test_results.append(("可视化调试器", False))
-        
-        # 测试6：增强特征匹配器
-        print("\n6. 测试增强特征匹配器...")
-        try:
-            import tempfile
-            import shutil
-            import cv2
-            import numpy as np
-            from src.equipment_recognizer import EnhancedEquipmentRecognizer
-            from src.feature_cache_manager import FeatureCacheManager
-            
-            # 创建增强识别器
-            enhanced_recognizer = EnhancedEquipmentRecognizer(
-                algorithm_type="enhanced_feature",
-                feature_type="ORB",
-                min_match_count=3,
-                match_ratio_threshold=0.5,
-                nfeatures=3000
-            )
-            
-            # 创建临时目录进行测试
-            temp_dir = tempfile.mkdtemp()
-            
-            # 创建测试图像
-            test_img1 = np.ones((100, 100, 3), dtype=np.uint8) * 128
-            test_img2 = np.ones((100, 100, 3), dtype=np.uint8) * 128
-            test_img1_path = os.path.join(temp_dir, "test1.png")
-            test_img2_path = os.path.join(temp_dir, "test2.png")
-            cv2.imwrite(test_img1_path, test_img1)
-            cv2.imwrite(test_img2_path, test_img2)
-            
-            # 测试图像比较
-            similarity, is_match = enhanced_recognizer.compare_images(test_img1_path, test_img2_path)
-            
-            if isinstance(similarity, (int, float)) and isinstance(is_match, bool):
-                print("✓ 增强特征匹配器测试通过")
-                test_results.append(("增强特征匹配器", True))
-            else:
-                print("❌ 增强特征匹配器测试失败")
-                test_results.append(("增强特征匹配器", False))
-            
-            # 清理临时目录
-            shutil.rmtree(temp_dir)
-        except Exception as e:
-            print(f"❌ 增强特征匹配器测试失败: {e}")
-            test_results.append(("增强特征匹配器", False))
-        
-        # 测试7：ORB特征点优化
-        print("\n7. 测试ORB特征点优化...")
-        try:
-            import tempfile
-            import shutil
-            from src.feature_cache_manager import FeatureCacheManager
-            
-            # 创建临时目录进行测试
-            temp_dir = tempfile.mkdtemp()
-            
-            # 创建缓存管理器，使用3000个特征点
-            cache_manager = FeatureCacheManager(
-                cache_dir=temp_dir,
-                target_size=(116, 116),
-                nfeatures=3000  # 测试3000个特征点
-            )
-            
-            # 验证特征点数量设置
-            if cache_manager.nfeatures == 3000:
-                print("✓ ORB特征点优化测试通过")
-                test_results.append(("ORB特征点优化", True))
-            else:
-                print("❌ ORB特征点优化测试失败")
-                test_results.append(("ORB特征点优化", False))
-            
-            # 清理临时目录
-            shutil.rmtree(temp_dir)
-        except Exception as e:
-            print(f"❌ ORB特征点优化测试失败: {e}")
-            test_results.append(("ORB特征点优化", False))
+        # 注释掉其他测试，这些属于其他步骤的功能
+        # 测试2：自动缓存更新器 - 属于匹配步骤
+        # 测试3：图像预处理流水线 - 属于切割步骤
+        # 测试4：质量检测器 - 属于切割步骤
+        # 测试5：可视化调试器 - 属于匹配步骤
+        # 测试6：增强特征匹配器 - 属于匹配步骤
+        # 测试7：ORB特征点优化 - 属于匹配步骤
         
     except Exception as e:
         if LOGGER_AVAILABLE:

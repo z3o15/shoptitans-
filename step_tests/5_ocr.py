@@ -8,6 +8,10 @@
 
 import os
 import sys
+
+# 添加项目根目录到sys.path，确保能正确导入src模块
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
 import subprocess
 import tempfile
 import shutil
@@ -21,12 +25,14 @@ import numpy as np
 
 # 导入统一日志管理器
 try:
-    from src.unified_logger import get_unified_logger
+    from src.logging.unified_logger import get_unified_logger
     UNIFIED_LOGGER_AVAILABLE = True
+    print("✅ 成功导入统一日志管理器")
 except ImportError:
     try:
         from unified_logger import get_unified_logger
         UNIFIED_LOGGER_AVAILABLE = True
+        print("✅ 成功导入本地日志管理器")
     except ImportError:
         UNIFIED_LOGGER_AVAILABLE = False
         print("⚠️ 统一日志管理器不可用，使用默认输出")
@@ -34,11 +40,13 @@ except ImportError:
 # 导入统一的背景掩码函数
 try:
     from src.utils.background_mask import create_background_mask
+    print("✅ 成功导入统一的背景掩码函数")
 except ImportError:
     try:
         from utils.background_mask import create_background_mask
+        print("✅ 成功导入本地背景掩码函数")
     except ImportError:
-        print("⚠️ 无法导入统一的背景掩码函数，将使用本地定义")
+        print("⚠️ 无法导入背景掩码函数，将使用本地定义")
         # 如果无法导入，定义一个本地函数作为后备
         def create_background_mask(image, target_color_bgr=(46, 33, 46), tolerance=20):
             """本地后备的背景掩码函数"""
@@ -211,9 +219,40 @@ def create_comparison_image(original_image, masked_image, filename):
 
 def check_dependencies():
     """检查依赖是否已安装"""
+    # 设置默认输出目录
+    default_output_dir = os.path.join(os.path.dirname(__file__), '..', 'output')
+    os.makedirs(default_output_dir, exist_ok=True)
+    
+    # 确保日志管理器有输出目录
     if UNIFIED_LOGGER_AVAILABLE:
-        logger = get_unified_logger()
-        logger.start_step("step5_ocr", "系统依赖检查")
+        try:
+            # 设置环境变量作为备用方案
+            os.environ['OUTPUT_DIR'] = default_output_dir
+            
+            # 尝试导入并初始化日志管理器
+            try:
+                from src.logging.unified_logger import set_base_output_dir
+                set_base_output_dir(default_output_dir)
+            except ImportError:
+                # 如果无法直接设置，创建环境变量后再导入
+                import sys
+                sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
+                try:
+                    from src.logging.unified_logger import set_base_output_dir
+                    set_base_output_dir(default_output_dir)
+                except (ImportError, AttributeError):
+                    pass
+        except Exception:
+            pass
+    
+    if UNIFIED_LOGGER_AVAILABLE:
+        try:
+            logger = get_unified_logger()
+            logger.start_step("step5_ocr", "系统依赖检查")
+        except Exception:
+            # 如果日志管理器初始化失败，降级到普通打印
+            print("检查系统依赖...")
+            return True  # 继续执行，不阻止后续流程
     else:
         print("检查系统依赖...")
         
@@ -291,9 +330,17 @@ def test_ocr_amount_recognition():
     
     try:
         # 创建临时目录
+        temp_dir = None
         if UNIFIED_LOGGER_AVAILABLE:
-            temp_dir = logger.get_step_dir("step5_ocr") / "temp_files"
-            temp_dir.mkdir(parents=True, exist_ok=True)
+            step_dir = logger.get_step_dir("step5_ocr")
+            # 增加检查，确保step_dir不为None
+            if step_dir is not None:
+                temp_dir = step_dir / "temp_files"
+                temp_dir.mkdir(parents=True, exist_ok=True)
+            else:
+                # 如果无法获取步骤目录，使用默认临时目录
+                temp_dir = tempfile.mkdtemp()
+                print(f"创建临时测试目录: {temp_dir}")
         else:
             temp_dir = tempfile.mkdtemp()
             print(f"创建临时测试目录: {temp_dir}")
@@ -344,9 +391,9 @@ def test_ocr_amount_recognition():
         try:
             import sys
             sys.path.append(os.path.join(os.path.dirname(__file__), '..', 'src'))
-            from enhanced_ocr_recognizer import EnhancedOCRRecognizer
-            from ocr_config_manager import OCRConfigManager
-            from config_manager import get_config_manager
+            from ocr.enhanced_ocr_recognizer import EnhancedOCRRecognizer
+            from config.ocr_config_manager import OCRConfigManager
+            from config.config_manager import get_config_manager
             
             # 初始化配置管理器
             base_config_manager = get_config_manager()
@@ -407,8 +454,8 @@ def test_ocr_amount_recognition():
         else:
             print("\n3. 测试OCR配置管理...")
         try:
-            from ocr_config_manager import OCRConfigManager
-            from config_manager import get_config_manager
+            from config.ocr_config_manager import OCRConfigManager
+            from config.config_manager import get_config_manager
             
             # 初始化配置管理器
             base_config_manager = get_config_manager()
@@ -518,13 +565,13 @@ def test_ocr_amount_recognition():
         else:
             print("\n5. 测试CSV记录管理...")
         try:
-            from csv_record_manager import CSVRecordManager
+            from ocr.csv_record_manager import CSVRecordManager
             
             # 创建临时CSV文件
             csv_file = os.path.join(temp_dir, "test_records.csv")
             
-            # 初始化CSV记录管理器
-            record_manager = CSVRecordManager(csv_file)
+            # 初始化CSV记录管理器（与process_amount_images函数保持一致）
+            record_manager = CSVRecordManager(ocr_config_manager)
             
             # 添加测试记录
             test_records = [
@@ -629,16 +676,82 @@ def test_ocr_amount_recognition():
 
 def process_amount_images():
     """处理金额图片"""
-    # 初始化日志系统
+    # 设置默认输出目录
+    default_output_dir = os.path.join(os.path.dirname(__file__), '..', 'output')
+    os.makedirs(default_output_dir, exist_ok=True)
+    
+    # 创建一个简单的日志替代类，避免NoneType错误
+    class SimpleLogger:
+        def __init__(self, output_dir=None):
+            self.output_dir = output_dir or default_output_dir
+            # 创建一个临时的步骤目录
+            import datetime
+            self.step_dir = os.path.join(self.output_dir, 'step5_ocr', datetime.datetime.now().strftime('%Y%m%d_%H%M%S'))
+            os.makedirs(self.step_dir, exist_ok=True)
+            
+        def log_info(self, msg):
+            print(f"📋 {msg}")
+        def log_error(self, msg):
+            print(f"❌ {msg}")
+        def log_success(self, msg):
+            print(f"✅ {msg}")
+        def update_stats(self, *args, **kwargs):
+            pass
+        def start_step(self, *args, **kwargs):
+            pass
+        def end_step(self, *args, **kwargs):
+            pass
+        def get_step_dir(self, *args, **kwargs):
+            # 忽略额外参数，返回步骤目录
+            return self.step_dir
+            
+        def get_step_stats(self, *args, **kwargs):
+            # 返回一个空字典作为统计信息
+            return {}
+            
+        def end_step(self, *args, **kwargs):
+            # 简单实现end_step方法
+            pass
+    
+    # 设置环境变量作为备用方案
+    os.environ['OUTPUT_DIR'] = default_output_dir
+    
+    # 默认使用简单日志器
+    logger = SimpleLogger()
+    
+    # 如果可以，尝试使用统一日志器
     if UNIFIED_LOGGER_AVAILABLE:
-        logger = get_unified_logger()
-        logger.start_step("step5_ocr", "OCR金额识别")
-    else:
-        print("\n" + "=" * 60)
-        print("处理金额图片")
-        print("=" * 60)
-        print("此功能将识别图片中的金额并保存结果")
-        print("-" * 60)
+        try:
+            # 尝试导入并初始化日志管理器
+            try:
+                from src.logging.unified_logger import set_base_output_dir
+                set_base_output_dir(default_output_dir)
+            except ImportError:
+                # 如果无法直接设置，创建环境变量后再导入
+                import sys
+                sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
+                try:
+                    from src.logging.unified_logger import set_base_output_dir
+                    set_base_output_dir(default_output_dir)
+                except (ImportError, AttributeError):
+                    pass
+            
+            try:
+                unified_logger = get_unified_logger()
+                logger = unified_logger  # 成功则替换为统一日志器
+                logger.start_step("step5_ocr", "OCR金额识别")
+            except Exception:
+                # 如果仍然失败，保持使用简单日志器
+                pass
+        except Exception as e:
+            print(f"初始化日志管理器失败: {e}")
+    
+    # 打印初始信息
+    print("\n" + "=" * 60)
+    print("处理金额图片")
+    print("=" * 60)
+    print("此功能将识别图片中的金额并保存结果")
+    print("-" * 60)
     
     # 检查依赖
     if not check_dependencies():
@@ -648,57 +761,128 @@ def process_amount_images():
     
     # 检查金额图片目录
     amount_images_dir = "images/cropped_equipment_marker"
-    
-    if not os.path.exists(amount_images_dir):
-        if UNIFIED_LOGGER_AVAILABLE:
-            logger.log_error(f"金额图片目录不存在: {amount_images_dir}")
-            logger.end_step("step5_ocr", "失败")
-        else:
-            print(f"❌ 金额图片目录不存在: {amount_images_dir}")
-        return False
-    
-    # 查找最新的时间目录
-    subdirs = []
-    for item in os.listdir(amount_images_dir):
-        item_path = os.path.join(amount_images_dir, item)
-        if os.path.isdir(item_path) and item.replace('_', '').replace(':', '').isdigit():
-            subdirs.append(item)
-    
-    if not subdirs:
-        print("❌ 未找到时间命名的金额图片目录")
-        return False
-    
-    latest_dir = sorted(subdirs)[-1]
-    latest_dir_path = os.path.join(amount_images_dir, latest_dir)
-    if UNIFIED_LOGGER_AVAILABLE:
-        logger.log_info(f"找到时间目录: {latest_dir}")
-    else:
-        print(f"✓ 找到时间目录: {latest_dir}")
-    
-    # 获取金额图片文件
+    latest_dir_path = None
     amount_files = []
-    for filename in os.listdir(latest_dir_path):
-        if filename.lower().endswith(('.png', '.jpg', '.jpeg', '.webp')):
-            amount_files.append(filename)
-    
-    if not amount_files:
-        if UNIFIED_LOGGER_AVAILABLE:
-            logger.log_error("未找到金额图片文件")
-            logger.end_step("step5_ocr", "失败")
-        else:
-            print("❌ 未找到金额图片文件")
-        return False
-    
-    if UNIFIED_LOGGER_AVAILABLE:
-        logger.log_info(f"找到 {len(amount_files)} 个金额图片文件")
-    else:
-        print(f"找到 {len(amount_files)} 个金额图片文件")
     
     try:
-        from src.enhanced_ocr_recognizer import EnhancedOCRRecognizer
-        from src.ocr_config_manager import OCRConfigManager
-        from src.config_manager import get_config_manager
-        from src.csv_record_manager import CSVRecordManager, CSVRecord
+        # 确保金额图片根目录存在且为有效路径
+        if amount_images_dir and os.path.exists(amount_images_dir) and os.path.isdir(amount_images_dir):
+            # 尝试获取所有子目录
+            try:
+                # 首先尝试查找时间命名的子目录（按修改时间排序）
+                valid_subdirs = []
+                for item in os.listdir(amount_images_dir):
+                    item_path = os.path.join(amount_images_dir, item)
+                    if os.path.isdir(item_path):
+                        # 检查是否为时间命名目录或任何有效子目录
+                        if (item.replace('_', '').replace(':', '').isdigit() or 
+                            item.replace('-', '').replace('_', '').isdigit()):
+                            try:
+                                # 获取修改时间用于排序
+                                mtime = os.path.getmtime(item_path)
+                                valid_subdirs.append((item, mtime))
+                            except:
+                                # 如果无法获取修改时间，仍添加但不排序
+                                valid_subdirs.append((item, 0))
+                
+                # 按修改时间降序排序（最新的在前）
+                valid_subdirs.sort(key=lambda x: x[1], reverse=True)
+                
+                # 尝试使用最新的有效子目录
+                if valid_subdirs:
+                    latest_dir = valid_subdirs[0][0]
+                    latest_dir_path = os.path.join(amount_images_dir, latest_dir)
+                    
+                    if UNIFIED_LOGGER_AVAILABLE:
+                        logger.log_info(f"找到时间目录: {latest_dir}")
+                    else:
+                        print(f"✓ 找到时间目录: {latest_dir}")
+                else:
+                    # 如果没有有效的子目录，尝试直接使用根目录
+                    if UNIFIED_LOGGER_AVAILABLE:
+                        logger.log_warning("未找到时间命名的子目录，将尝试直接使用根目录")
+                    else:
+                        print("⚠️ 未找到时间命名的子目录，将尝试直接使用根目录")
+                    latest_dir_path = amount_images_dir
+            except Exception as e:
+                # 读取目录出错时，尝试直接使用根目录
+                if UNIFIED_LOGGER_AVAILABLE:
+                    logger.log_error(f"读取目录内容出错: {e}，将尝试直接使用根目录")
+                else:
+                    print(f"❌ 读取目录内容出错: {e}，将尝试直接使用根目录")
+                latest_dir_path = amount_images_dir
+        else:
+            # 根目录不存在，创建默认目录作为备选
+            if UNIFIED_LOGGER_AVAILABLE:
+                logger.log_error(f"金额图片目录不存在: {amount_images_dir}")
+            else:
+                print(f"❌ 金额图片目录不存在: {amount_images_dir}")
+            
+            # 创建默认目录作为备选
+            default_dir = os.path.join(os.getcwd(), "amount_images")
+            try:
+                os.makedirs(default_dir, exist_ok=True)
+                latest_dir_path = default_dir
+                if UNIFIED_LOGGER_AVAILABLE:
+                    logger.log_info(f"已创建默认目录: {default_dir}")
+                else:
+                    print(f"⚠️ 已创建默认目录: {default_dir}")
+            except Exception as e:
+                if UNIFIED_LOGGER_AVAILABLE:
+                    logger.log_error(f"创建默认目录失败: {e}")
+                    logger.end_step("step5_ocr", "失败")
+                else:
+                    print(f"❌ 创建默认目录失败: {e}")
+                return False
+        
+        # 验证最终的处理目录
+        if latest_dir_path and os.path.exists(latest_dir_path) and os.path.isdir(latest_dir_path):
+            # 获取金额图片文件
+            try:
+                for filename in os.listdir(latest_dir_path):
+                    if filename.lower().endswith(('.png', '.jpg', '.jpeg', '.webp')):
+                        amount_files.append(filename)
+                
+                if not amount_files:
+                    if UNIFIED_LOGGER_AVAILABLE:
+                        logger.log_error(f"在目录 {latest_dir_path} 中未找到金额图片文件")
+                        logger.end_step("step5_ocr", "失败")
+                    else:
+                        print(f"❌ 在目录 {latest_dir_path} 中未找到金额图片文件")
+                    return False
+                
+                if UNIFIED_LOGGER_AVAILABLE:
+                    logger.log_info(f"找到 {len(amount_files)} 个金额图片文件")
+                else:
+                    print(f"找到 {len(amount_files)} 个金额图片文件")
+            except Exception as e:
+                if UNIFIED_LOGGER_AVAILABLE:
+                    logger.log_error(f"读取目录 {latest_dir_path} 内容出错: {e}")
+                    logger.end_step("step5_ocr", "失败")
+                else:
+                    print(f"❌ 读取目录 {latest_dir_path} 内容出错: {e}")
+                return False
+        else:
+            if UNIFIED_LOGGER_AVAILABLE:
+                logger.log_error(f"处理目录不存在或不是有效的目录: {latest_dir_path}")
+                logger.end_step("step5_ocr", "失败")
+            else:
+                print(f"❌ 处理目录不存在或不是有效的目录: {latest_dir_path}")
+            return False
+    except Exception as e:
+        if UNIFIED_LOGGER_AVAILABLE:
+            logger.log_error(f"查找金额图片目录时出错: {e}")
+            logger.end_step("step5_ocr", "失败")
+        else:
+            print(f"❌ 查找金额图片目录时出错: {e}")
+        return False
+    
+    try:
+        # 使用正确的导入路径
+        from src.ocr.enhanced_ocr_recognizer import EnhancedOCRRecognizer
+        from src.config.ocr_config_manager import OCRConfigManager
+        from src.config.config_manager import get_config_manager
+        from src.ocr.csv_record_manager import CSVRecordManager, CSVRecord
     except ImportError as e:
         if UNIFIED_LOGGER_AVAILABLE:
             logger.log_error(f"导入错误: {e}")
@@ -709,10 +893,10 @@ def process_amount_images():
         try:
             import sys
             sys.path.append(os.path.join(os.path.dirname(__file__), '..', 'src'))
-            from enhanced_ocr_recognizer import EnhancedOCRRecognizer
-            from ocr_config_manager import OCRConfigManager
-            from config_manager import get_config_manager
-            from csv_record_manager import CSVRecordManager, CSVRecord
+            from ocr.enhanced_ocr_recognizer import EnhancedOCRRecognizer
+            from config.ocr_config_manager import OCRConfigManager
+            from config.config_manager import get_config_manager
+            from ocr.csv_record_manager import CSVRecordManager, CSVRecord
         except ImportError as e2:
             if UNIFIED_LOGGER_AVAILABLE:
                 logger.log_error(f"无法导入必要模块: {e2}")
@@ -722,30 +906,111 @@ def process_amount_images():
             return False
     
     try:
-        # 初始化配置管理器
-        base_config_manager = get_config_manager()
-        ocr_config_manager = OCRConfigManager(base_config_manager)
+        # 初始化配置管理器 - 增加健壮性检查
+        try:
+            base_config_manager = get_config_manager()
+            if base_config_manager is None:
+                if UNIFIED_LOGGER_AVAILABLE:
+                    logger.log_error("无法初始化配置管理器")
+                else:
+                    print("❌ 无法初始化配置管理器")
+                return False
+        except Exception as e:
+            if UNIFIED_LOGGER_AVAILABLE:
+                logger.log_error(f"初始化配置管理器时出错: {e}")
+            else:
+                print(f"❌ 初始化配置管理器时出错: {e}")
+            return False
         
-        # 初始化增强版OCR识别器
-        recognizer = EnhancedOCRRecognizer(ocr_config_manager)
+        # 初始化OCR配置管理器 - 增加健壮性检查
+        try:
+            ocr_config_manager = OCRConfigManager(base_config_manager)
+            if ocr_config_manager is None:
+                if UNIFIED_LOGGER_AVAILABLE:
+                    logger.log_error("无法初始化OCR配置管理器")
+                else:
+                    print("❌ 无法初始化OCR配置管理器")
+                return False
+        except Exception as e:
+            if UNIFIED_LOGGER_AVAILABLE:
+                logger.log_error(f"初始化OCR配置管理器时出错: {e}")
+            else:
+                print(f"❌ 初始化OCR配置管理器时出错: {e}")
+            return False
         
-        # 初始化CSV记录管理器
-        if UNIFIED_LOGGER_AVAILABLE:
-            output_dir = logger.get_step_dir("step5_ocr") / "images"
-            txt_output_dir = logger.get_step_dir("step5_ocr") / "txt"
-            output_dir.mkdir(parents=True, exist_ok=True)
-            txt_output_dir.mkdir(parents=True, exist_ok=True)
-        else:
-            output_dir = "output"
-            os.makedirs(output_dir, exist_ok=True)
+        # 初始化增强版OCR识别器 - 增加健壮性检查
+        try:
+            recognizer = EnhancedOCRRecognizer(ocr_config_manager)
+            if recognizer is None:
+                if UNIFIED_LOGGER_AVAILABLE:
+                    logger.log_error("无法初始化OCR识别器")
+                else:
+                    print("❌ 无法初始化OCR识别器")
+                return False
+        except Exception as e:
+            if UNIFIED_LOGGER_AVAILABLE:
+                logger.log_error(f"初始化OCR识别器时出错: {e}")
+            else:
+                print(f"❌ 初始化OCR识别器时出错: {e}")
+            return False
         
-        csv_file = os.path.join(output_dir, f"amount_records_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv")
+        # 初始化CSV记录管理器和创建输出目录 - 增加健壮性检查
+        try:
+            if UNIFIED_LOGGER_AVAILABLE:
+                step_dir = logger.get_step_dir("step5_ocr")
+                # 增加检查，确保step_dir不为None
+                if step_dir is not None:
+                    # 使用os.path.join代替除法运算符，兼容字符串路径
+                    output_dir = os.path.join(step_dir, "images")
+                    txt_output_dir = os.path.join(step_dir, "txt")
+                    os.makedirs(output_dir, exist_ok=True)
+                    os.makedirs(txt_output_dir, exist_ok=True)
+                else:
+                    # 如果无法获取步骤目录，使用默认输出目录
+                    output_dir = "output"
+                    os.makedirs(output_dir, exist_ok=True)
+            else:
+                output_dir = "output"
+                os.makedirs(output_dir, exist_ok=True)
+            
+            csv_file = os.path.join(output_dir, f"amount_records_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv")
+        except Exception as e:
+            if UNIFIED_LOGGER_AVAILABLE:
+                logger.log_error(f"创建输出目录或设置CSV文件时出错: {e}")
+            else:
+                print(f"❌ 创建输出目录或设置CSV文件时出错: {e}")
+            return False
         
-        # 创建CSV记录管理器（不需要传递csv_file，而是传递配置管理器）
-        record_manager = CSVRecordManager(ocr_config_manager)
-        
-        # 创建CSV文件
-        record_manager.create_csv_file(csv_file)
+        # 创建CSV记录管理器 - 增加详细日志和健壮性
+        try:
+            if UNIFIED_LOGGER_AVAILABLE:
+                logger.log_info(f"正在初始化CSVRecordManager，配置管理器类型: {type(ocr_config_manager).__name__}")
+            else:
+                print(f"📋 正在初始化CSVRecordManager，配置管理器类型: {type(ocr_config_manager).__name__}")
+            
+            record_manager = CSVRecordManager(ocr_config_manager)
+            if record_manager is None:
+                if UNIFIED_LOGGER_AVAILABLE:
+                    logger.log_error("CSVRecordManager初始化失败，返回None")
+                else:
+                    print("❌ CSVRecordManager初始化失败，返回None")
+                return False
+                
+            # 创建CSV文件 - 增加日志
+            if UNIFIED_LOGGER_AVAILABLE:
+                logger.log_info(f"正在创建CSV文件: {csv_file}")
+            else:
+                print(f"📋 正在创建CSV文件: {csv_file}")
+            
+            record_manager.create_csv_file(csv_file)
+        except Exception as e:
+            if UNIFIED_LOGGER_AVAILABLE:
+                logger.log_error(f"初始化CSVRecordManager时出错: {e}")
+                logger.log_error(f"错误详情: {str(e)}")
+            else:
+                print(f"❌ 初始化CSVRecordManager时出错: {e}")
+                print(f"错误详情: {str(e)}")
+            return False
         
         # 创建掩码图像保存目录
         masked_output_dir = os.path.join(output_dir, "masked_amount_images")
@@ -762,26 +1027,77 @@ def process_amount_images():
             print(f"✓ 掩码图像将保存到: {masked_output_dir}")
             print(f"✓ 对比图像将保存到: {comparison_output_dir}")
         
-        # 处理每个金额图片
+        # 处理每个金额图片 - 增加详细的路径检查和日志
+        try:
+            if UNIFIED_LOGGER_AVAILABLE:
+                logger.log_info(f"开始处理图片列表，图片总数: {len(amount_files)}")
+                logger.log_info(f"处理目录路径: {latest_dir_path}")
+            else:
+                print(f"📋 开始处理图片列表，图片总数: {len(amount_files)}")
+                print(f"📋 处理目录路径: {latest_dir_path}")
+        except Exception as e:
+            if UNIFIED_LOGGER_AVAILABLE:
+                logger.log_error(f"记录处理信息时出错: {e}")
+            else:
+                print(f"❌ 记录处理信息时出错: {e}")
+            return False
+        
         success_count = 0
         processed_count = 0
         
         for filename in sorted(amount_files):
-            file_path = os.path.join(latest_dir_path, filename)
-            if UNIFIED_LOGGER_AVAILABLE:
-                logger.log_info(f"处理文件: {filename}")
-            else:
-                print(f"\n处理: {filename}")
-            
             try:
-                # 加载图像
-                image = load_image(file_path)
-                if image is None:
+                # 构建完整的图片路径 - 增加详细检查
+                if not latest_dir_path or not isinstance(latest_dir_path, str):
+                    error_msg = f"无效的目录路径: {latest_dir_path}"
                     if UNIFIED_LOGGER_AVAILABLE:
-                        logger.log_error(f"无法加载图像: {filename}")
+                        logger.log_error(error_msg)
+                    else:
+                        print(f"❌ {error_msg}")
+                    continue
+                
+                if not filename or not isinstance(filename, str):
+                    error_msg = f"无效的文件名: {filename}"
+                    if UNIFIED_LOGGER_AVAILABLE:
+                        logger.log_error(error_msg)
+                    else:
+                        print(f"❌ {error_msg}")
+                    continue
+                
+                try:
+                    file_path = os.path.join(latest_dir_path, filename)
+                    if UNIFIED_LOGGER_AVAILABLE:
+                        logger.log_info(f"处理文件: {filename} (路径: {file_path})")
+                    else:
+                        print(f"\n处理: {filename} (路径: {file_path})")
+                except Exception as e:
+                    error_msg = f"构建图像路径时出错: {e}"
+                    if UNIFIED_LOGGER_AVAILABLE:
+                        logger.log_error(error_msg)
+                    else:
+                        print(f"❌ {error_msg}")
+                    continue
+                
+                # 加载图像 - 增加详细日志
+                try:
+                    if UNIFIED_LOGGER_AVAILABLE:
+                        logger.log_info(f"正在加载图像: {file_path}")
+                    else:
+                        print(f"📋 正在加载图像")
+                    image = load_image(file_path)
+                    if image is None:
+                        if UNIFIED_LOGGER_AVAILABLE:
+                            logger.log_error(f"无法加载图像: {filename}")
+                            logger.update_stats("step5_ocr", error_items=1)
+                        else:
+                            print(f"  ❌ 无法加载图像: {filename}")
+                        continue
+                except Exception as e:
+                    if UNIFIED_LOGGER_AVAILABLE:
+                        logger.log_error(f"加载图像时出错: {str(e)}")
                         logger.update_stats("step5_ocr", error_items=1)
                     else:
-                        print(f"  ❌ 无法加载图像: {filename}")
+                        print(f"  ❌ 加载图像时出错: {str(e)}")
                     continue
                 
                 # 创建掩码并应用
@@ -790,83 +1106,123 @@ def process_amount_images():
                 
                 # 保存掩码后的图像
                 masked_filename = f"masked_{filename}"
-                masked_path = os.path.join(masked_output_dir, masked_filename)
+                masked_path = os.path.abspath(os.path.join(masked_output_dir, masked_filename))
+                
+                # 确保目录存在
+                os.makedirs(os.path.dirname(masked_path), exist_ok=True)
+                
+                print(f"  ⚠️ 调试: 掩码图像保存路径: {masked_path}")
                 
                 # 尝试使用OpenCV保存，如果失败则使用PIL
                 try:
-                    cv2.imwrite(masked_path, masked_image)
-                except:
-                    try:
-                        # 转换为PIL格式并保存
-                        masked_rgb = cv2.cvtColor(masked_image, cv2.COLOR_BGR2RGB)
-                        pil_image = Image.fromarray(masked_rgb)
-                        pil_image.save(masked_path)
-                    except Exception as e:
-                        print(f"  ⚠️ 保存掩码图像失败: {e}")
+                    success = cv2.imwrite(masked_path, masked_image)
+                    if success:
+                        print(f"  ✓ OpenCV保存掩码图像成功: {masked_filename}")
+                    else:
+                        print(f"  ⚠️ OpenCV保存掩码图像返回失败")
+                        # OpenCV保存失败，尝试PIL
+                        try:
+                            # 转换为PIL格式并保存
+                            masked_rgb = cv2.cvtColor(masked_image, cv2.COLOR_BGR2RGB)
+                            pil_image = Image.fromarray(masked_rgb)
+                            pil_image.save(masked_path)
+                            print(f"  ✓ PIL保存掩码图像成功: {masked_filename}")
+                        except Exception as e:
+                            print(f"  ⚠️ PIL保存掩码图像失败: {e}")
+                except Exception as e:
+                    print(f"  ⚠️ 保存掩码图像异常: {e}")
                 
-                print(f"  ✓ 已保存掩码图像: {masked_filename}")
+                # 验证文件是否存在
+                if os.path.exists(masked_path):
+                    print(f"  ✓ 确认掩码图像已保存: {masked_path}")
+                else:
+                    print(f"  ❌ 掩码图像保存失败，文件不存在")
                 
                 # 创建对比图像并保存
                 comparison_image = create_comparison_image(image, masked_image, filename)
                 comparison_filename = f"comparison_{filename}"
-                comparison_path = os.path.join(comparison_output_dir, comparison_filename)
+                comparison_path = os.path.abspath(os.path.join(comparison_output_dir, comparison_filename))
+                
+                # 确保目录存在
+                os.makedirs(os.path.dirname(comparison_path), exist_ok=True)
+                
+                print(f"  ⚠️ 调试: 对比图像保存路径: {comparison_path}")
                 
                 # 尝试使用OpenCV保存，如果失败则使用PIL
                 try:
-                    cv2.imwrite(comparison_path, comparison_image)
-                except:
-                    try:
-                        # 转换为PIL格式并保存
-                        comparison_rgb = cv2.cvtColor(comparison_image, cv2.COLOR_BGR2RGB)
-                        pil_image = Image.fromarray(comparison_rgb)
-                        pil_image.save(comparison_path)
-                    except Exception as e:
-                        print(f"  ⚠️ 保存对比图像失败: {e}")
+                    success = cv2.imwrite(comparison_path, comparison_image)
+                    if success:
+                        print(f"  ✓ OpenCV保存对比图像成功: {comparison_filename}")
+                    else:
+                        print(f"  ⚠️ OpenCV保存对比图像返回失败")
+                        # OpenCV保存失败，尝试PIL
+                        try:
+                            # 转换为PIL格式并保存
+                            comparison_rgb = cv2.cvtColor(comparison_image, cv2.COLOR_BGR2RGB)
+                            pil_image = Image.fromarray(comparison_rgb)
+                            pil_image.save(comparison_path)
+                            print(f"  ✓ PIL保存对比图像成功: {comparison_filename}")
+                        except Exception as e:
+                            print(f"  ⚠️ PIL保存对比图像失败: {e}")
+                except Exception as e:
+                    print(f"  ⚠️ 保存对比图像异常: {e}")
                 
-                print(f"  ✓ 已保存对比图像: {comparison_filename}")
+                # 验证文件是否存在
+                if os.path.exists(comparison_path):
+                    print(f"  ✓ 确认对比图像已保存: {comparison_path}")
+                else:
+                    print(f"  ❌ 对比图像保存失败，文件不存在")
                 
                 # 识别金额（使用掩码后的图像）
                 result = recognizer.recognize_with_fallback(masked_path)
                 recognized_amount = result.recognized_text.strip()
                 
+                # 格式化金额函数
+                def format_amount(text):
+                    # 移除常见的前缀和后缀
+                    text = text.strip().replace('$', '').replace(',', '').replace(' ', '')
+                    
+                    # 处理k表示法
+                    if 'k' in text.lower():
+                        try:
+                            value = float(text.lower().replace('k', ''))
+                            return str(int(value * 1000))
+                        except:
+                            return text
+                    
+                    return text
+                
+                # 无论识别成功与否，都保存记录
                 if recognized_amount:
-                    # 格式化金额
-                    def format_amount(text):
-                        # 移除常见的前缀和后缀
-                        text = text.strip().replace('$', '').replace(',', '').replace(' ', '')
-                        
-                        # 处理k表示法
-                        if 'k' in text.lower():
-                            try:
-                                value = float(text.lower().replace('k', ''))
-                                return str(int(value * 1000))
-                            except:
-                                return text
-                        
-                        return text
-                    
                     formatted_amount = format_amount(recognized_amount)
-                    
-                    # 保存记录
-                    record = CSVRecord(
-                        timestamp=datetime.now().isoformat(),
-                        original_filename=filename,
-                        new_filename=masked_filename,
-                        equipment_name="",  # 装备名称暂时为空
-                        amount=formatted_amount,
-                        processing_time=0.0,
-                        status="成功",
-                        recognized_text=recognized_amount,
-                        confidence=result.confidence
-                    )
-                    
-                    record_manager.add_record(csv_file, record)
+                    status = "成功"
                     success_count += 1
-                    
-                    print(f"  识别结果: {recognized_amount} -> {formatted_amount}")
-                    print(f"  置信度: {result.confidence:.2f}")
                 else:
-                    print(f"  ❌ 未识别到金额")
+                    formatted_amount = ""
+                    recognized_amount = "未识别到金额"
+                    status = "失败"
+                    if hasattr(result, 'confidence'):
+                        confidence = result.confidence
+                    else:
+                        confidence = 0.0
+                
+                # 创建并保存CSV记录
+                record = CSVRecord(
+                    timestamp=datetime.now().isoformat(),
+                    original_filename=filename,
+                    new_filename=masked_filename,
+                    equipment_name="",  # 装备名称暂时为空
+                    amount=formatted_amount,
+                    processing_time=0.0,
+                    status=status,
+                    recognized_text=recognized_amount,
+                    confidence=confidence
+                )
+                
+                record_manager.add_record(csv_file, record)
+                
+                print(f"  识别结果: {recognized_amount} -> {formatted_amount}")
+                print(f"  置信度: {result.confidence:.2f}")
                     
             except Exception as e:
                 print(f"  ❌ 处理 {filename} 时出错: {e}")
@@ -926,14 +1282,30 @@ def main():
                 # 初始化日志管理器（如果可用）
                 if UNIFIED_LOGGER_AVAILABLE:
                     try:
-                        from src.config_manager import get_config_manager
+                        from src.config.config_manager import get_config_manager
                         config_manager = get_config_manager()
                         # 初始化日志系统已在函数开始时完成
                         pass
                     except ImportError:
-                        pass
+                        try:
+                            # 尝试直接导入
+                            import sys
+                            sys.path.append(os.path.join(os.path.dirname(__file__), '..', 'src'))
+                            from config.config_manager import get_config_manager
+                            config_manager = get_config_manager()
+                        except ImportError:
+                            pass
                 
-                process_amount_images()
+                # 调用处理函数，不传递step_dir参数，让函数内部处理默认逻辑
+                try:
+                    print("开始处理金额图片...")
+                    success = process_amount_images()
+                    if not success:
+                        print("⚠️ 处理过程中出现警告，请查看日志了解详情")
+                except Exception as e:
+                    print(f"❌ 处理金额图片时发生错误: {e}")
+                    import traceback
+                    print(f"错误详情: {traceback.format_exc()}")
             elif choice == '2':
                 test_ocr_amount_recognition()
             else:

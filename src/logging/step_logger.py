@@ -348,22 +348,35 @@ class StepLogger:
             step_id: 步骤ID
             message: 日志消息
         """
-        if step_id in self.log_files:
+        # 增加检查，确保log_files属性存在且step_id在其中
+        if hasattr(self, 'log_files') and isinstance(self.log_files, dict) and step_id in self.log_files:
             self.log_files[step_id].write(message)
             self.log_files[step_id].flush()
     
     def close_all_logs(self) -> None:
         """关闭所有日志文件"""
+        # 增加检查，确保log_files属性存在
+        if not hasattr(self, 'log_files') or not isinstance(self.log_files, dict):
+            self.current_step = None
+            return
+        
         for step_id in list(self.log_files.keys()):
             if step_id in self.log_files:
-                self.log_files[step_id].close()
-                del self.log_files[step_id]
+                try:
+                    self.log_files[step_id].close()
+                    del self.log_files[step_id]
+                except Exception as e:
+                    print(f"关闭日志文件失败 ({step_id}): {e}")
         
         self.current_step = None
     
     def __del__(self):
-        """析构函数，确保关闭所有日志文件"""
-        self.close_all_logs()
+        """析构函数，确保日志文件正确关闭"""
+        try:
+            self.close_all_logs()
+        except Exception:
+            # 忽略析构函数中的异常，避免影响程序退出
+            pass
 
 
 # 全局步骤日志管理器实例

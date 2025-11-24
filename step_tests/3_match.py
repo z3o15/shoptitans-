@@ -687,8 +687,47 @@ def match_equipment_images(base_dir, compare_dir, output_dir):
         if best_match and best_base_masked is not None:
             # 调整图像大小为相同尺寸以便比较
             target_size = (200, 200)  # 增大尺寸以便更好地查看
-            base_resized = cv2.resize(best_base_masked, target_size)
-            compare_resized = cv2.resize(compare_masked_image, target_size)
+            
+            # 尝试使用equipment_masks目录下的掩码后装备图像
+            # 获取equipment_masks目录
+            equipment_mask_dir = os.path.join(output_dir, "equipment_masks")
+            
+            # 查找匹配的掩码后装备图像
+            base_masked_eq_img = None
+            compare_masked_eq_img = None
+            
+            try:
+                # 查找基准图像对应的掩码后装备图像
+                base_files = [f for f in os.listdir(equipment_mask_dir) 
+                             if f.startswith("img1_equipment_only_") and f.endswith(".png")]
+                if base_files:
+                    # 使用最新的掩码后装备图像
+                    base_files.sort(reverse=True)
+                    base_eq_path = os.path.join(equipment_mask_dir, base_files[0])
+                    base_masked_eq_img = load_image(base_eq_path)
+                    log_message("DEBUG", f"使用基准掩码后装备图像: {base_eq_path}")
+                
+                # 查找对比图像对应的掩码后装备图像
+                compare_files = [f for f in os.listdir(equipment_mask_dir) 
+                                if f.startswith("img2_equipment_only_") and f.endswith(".png")]
+                if compare_files:
+                    # 使用最新的掩码后装备图像
+                    compare_files.sort(reverse=True)
+                    compare_eq_path = os.path.join(equipment_mask_dir, compare_files[0])
+                    compare_masked_eq_img = load_image(compare_eq_path)
+                    log_message("DEBUG", f"使用对比掩码后装备图像: {compare_eq_path}")
+            except Exception as e:
+                log_message("ERROR", f"加载掩码后装备图像失败: {e}")
+            
+            # 如果找不到掩码后装备图像，使用原始掩码图像作为备选
+            if base_masked_eq_img is None:
+                base_masked_eq_img = best_base_masked
+            if compare_masked_eq_img is None:
+                compare_masked_eq_img = compare_masked_image
+            
+            # 调整图像大小
+            base_resized = cv2.resize(base_masked_eq_img, target_size)
+            compare_resized = cv2.resize(compare_masked_eq_img, target_size)
             
             # 创建对比图像
             comparison_image = np.zeros((target_size[0], target_size[1] * 2, 3), dtype=np.uint8)
@@ -806,16 +845,16 @@ def step3_match_equipment(auto_mode=True, base_dir=None, compare_dir=None, outpu
     
     # 设置默认路径
     if base_dir is None:
-        base_dir = "images/base_equipment_new"
+        base_dir = "images/base_equipment"  # 修正：使用正确的基准图像目录
     if compare_dir is None:
-        compare_dir = "images/cropped_equipment_transparent"
+        compare_dir = "images/cropped_equipment_transparent"  # 使用透明背景的裁剪图像
     if output_dir is None:
         if LOGGER_AVAILABLE:
             output_dir = logger.get_step_dir("step3_match") / "images"
             txt_output_dir = logger.get_step_dir("step3_match") / "txt"
             txt_output_dir.mkdir(parents=True, exist_ok=True)
         else:
-            output_dir = "images/matching_results"
+            output_dir = "step_tests/step3_match/images"  # 更新：输出到step3_match目录下
     
     # 执行匹配
     try:
