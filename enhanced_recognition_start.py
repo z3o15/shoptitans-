@@ -218,7 +218,7 @@ def step1_get_screenshots(auto_mode=True):
     
     return True
 
-def step2_cut_screenshots(auto_mode=True, auto_clear_old=True, auto_select_all=True, save_original=True):
+def step2_cut_screenshots(auto_mode=True, auto_clear_old=True, auto_select_all=True, save_original=True, enable_preprocessing=True):
     """步骤2：分割原始图片"""
     if NODE_LOGGER_AVAILABLE:
         logger = get_logger()
@@ -503,6 +503,39 @@ def step2_cut_screenshots(auto_mode=True, auto_clear_old=True, auto_select_all=T
             print(f"✓ 从 {screenshot} 切割出 {cropped_items} 个装备到 {time_folder}/")
             total_cropped += cropped_items
         
+        # 应用图像预处理流水线（如果启用）
+        if enable_preprocessing:
+            try:
+                from src.preprocess.preprocess_pipeline import PreprocessPipeline
+                from src.config_manager import get_config_manager
+                
+                config_manager = get_config_manager()
+                preprocess_config = config_manager.get_preprocessing_config()
+                
+                if preprocess_config.get('enable_enhancement', True):
+                    print("\n应用图像预处理流水线...")
+                    pipeline = PreprocessPipeline(
+                        target_size=tuple(preprocess_config.get('target_size', [116, 116])),
+                        enable_enhancement=preprocess_config.get('enable_enhancement', True)
+                    )
+                    
+                    # 批量预处理每个时间目录中的图像
+                    for time_folder in os.listdir(output_dir):
+                        folder_path = os.path.join(output_dir, time_folder)
+                        if os.path.isdir(folder_path):
+                            print(f"  预处理目录: {time_folder}")
+                            pipeline.batch_process_directory(
+                                input_dir=folder_path,
+                                output_dir=folder_path,
+                                save_intermediate=preprocess_config.get('save_intermediate', False)
+                            )
+                    
+                    print("✓ 图像预处理完成")
+            except ImportError as e:
+                print(f"⚠️ 预处理模块不可用: {e}")
+            except Exception as e:
+                print(f"⚠️ 预处理过程中出错: {e}")
+        
         if NODE_LOGGER_AVAILABLE:
             logger.log_info(f"共切割出 {total_cropped} 个装备图片")
             logger.log_success("步骤2完成")
@@ -516,7 +549,7 @@ def step2_cut_screenshots(auto_mode=True, auto_clear_old=True, auto_select_all=T
         print(f"❌ 切割过程中出错: {e}")
         return False
 
-def step3_match_equipment(auto_mode=True, auto_select_base=True, auto_threshold=None, auto_match_all=False):
+def step3_match_equipment(auto_mode=True, auto_select_base=True, auto_threshold=None, auto_match_all=False, auto_update_cache=True, enable_debug=False):
     """步骤3：装备识别匹配"""
     if NODE_LOGGER_AVAILABLE:
         logger = get_logger()
@@ -532,6 +565,34 @@ def step3_match_equipment(auto_mode=True, auto_select_base=True, auto_threshold=
     if not check_dependencies():
         return False
     
+    # 检查并自动更新缓存
+    if auto_update_cache:
+        try:
+            from src.cache.auto_cache_updater import AutoCacheUpdater
+            from src.config_manager import get_config_manager
+            
+            config_manager = get_config_manager()
+            cache_config = config_manager.get_feature_cache_config()
+            
+            if cache_config.get('auto_update', True):
+                print("\n检查特征缓存更新...")
+                updater = AutoCacheUpdater(
+                    cache_dir=cache_config.get('cache_dir', 'images/cache'),
+                    target_size=tuple(cache_config.get('target_size', [116, 116])),
+                    nfeatures=cache_config.get('nfeatures', 3000),
+                    auto_update=True
+                )
+                
+                base_equipment_dir = "images/base_equipment"
+                if updater.auto_update_if_needed(base_equipment_dir):
+                    print("✓ 特征缓存已更新")
+                else:
+                    print("✓ 特征缓存已是最新")
+        except ImportError as e:
+            print(f"⚠️ 自动缓存更新器不可用: {e}")
+        except Exception as e:
+            print(f"⚠️ 缓存更新检查失败: {e}")
+    
     # 检查基准装备
     base_equipment_dir = "images/base_equipment"
     base_image_files = []
@@ -542,6 +603,39 @@ def step3_match_equipment(auto_mode=True, auto_select_base=True, auto_threshold=
     if not base_image_files:
         print("❌ 未找到基准装备图片")
         return False
+    
+    # 图像哈希检测重复
+    try:
+        from src.utils.image_hash import get_dhash, calculate_hamming_distance
+        import cv2
+        
+        print("\n进行图像哈希检测...")
+        base_hashes = {}
+        for filename in base_image_files:
+            file_path = os.path.join(base_equipment_dir, filename)
+            try:
+                image = cv2.imread(file_path)
+                if image is not None:
+                    base_hashes[filename] = get_dhash(image)
+            except Exception as e:
+                print(f"⚠️ 计算基准装备哈希失败 {filename}: {e}")
+        
+        # 检测重复的基准装备
+        duplicate_base = []
+        for i, (file1, hash1) in enumerate(base_hashes.items()):
+            for file2, hash2 in list(base_hashes.items())[i+1:]:
+                distance = calculate_hamming_distance(hash1, hash2)
+                if distance < 5:  # 阈值可配置
+                    duplicate_base.append((file1, file2, distance))
+        
+        if duplicate_base:
+            print(f"⚠️ 检测到 {len(duplicate_base)} 个可能重复的基准装备:")
+            for file1, file2, distance in duplicate_base[:3]:  # 只显示前3个
+                print(f"  - {file1} 与 {file2} 相似 (距离: {distance})")
+    except ImportError as e:
+        print(f"⚠️ 图像哈希工具不可用: {e}")
+    except Exception as e:
+        print(f"⚠️ 图像哈希检测失败: {e}")
     
     # 检查切割装备
     cropped_equipment_dir = "images/cropped_equipment"
@@ -923,6 +1017,58 @@ def step3_match_equipment(auto_mode=True, auto_select_base=True, auto_threshold=
                 crop_folder=cropped_equipment_dir,
                 threshold=threshold
             )
+        
+        # 可视化调试器集成
+        if enable_debug and matched_items:
+            try:
+                from src.debug.visual_debugger import VisualDebugger
+                import cv2
+                
+                print("\n生成可视化调试报告...")
+                debugger = VisualDebugger(
+                    debug_dir="debug_output",
+                    enable_debug=True
+                )
+                
+                # 收集调试数据
+                debug_data = []
+                for filename, similarity in matched_items:
+                    file_path = os.path.join(cropped_equipment_dir, filename)
+                    if os.path.exists(file_path):
+                        try:
+                            target_img = cv2.imread(file_path)
+                            base_img = cv2.imread(base_image_path)
+                            
+                            debug_item = {
+                                'filename': filename,
+                                'similarity': similarity,
+                                'target_image': target_img,
+                                'base_image': base_img,
+                                'file_path': file_path
+                            }
+                            debug_data.append(debug_item)
+                        except Exception as e:
+                            print(f"⚠️ 处理调试数据失败 {filename}: {e}")
+                
+                # 生成调试报告
+                if debug_data:
+                    report_path = debugger.generate_matching_report(
+                        base_image_path=base_image_path,
+                        matching_results=debug_data,
+                        threshold=threshold
+                    )
+                    print(f"✓ 可视化调试报告已生成: {report_path}")
+                    
+                    # 生成详细分析报告
+                    analysis_path = debugger.generate_detailed_analysis(debug_data)
+                    print(f"✓ 详细分析报告已生成: {analysis_path}")
+                else:
+                    print("⚠️ 没有可用的调试数据")
+                    
+            except ImportError as e:
+                print(f"⚠️ 可视化调试器不可用: {e}")
+            except Exception as e:
+                print(f"⚠️ 生成调试报告失败: {e}")
         
         if NODE_LOGGER_AVAILABLE:
             logger.log_info(f"在 {len(cropped_files)} 个装备中找到 {len(matched_items)} 个匹配项")
@@ -2058,7 +2204,7 @@ def run_full_workflow():
         return False
     
     # 步骤2：分割原始图片
-    if not step2_cut_screenshots(auto_mode=False):
+    if not step2_cut_screenshots(auto_mode=False, enable_preprocessing=True):
         return False
     
     # 询问是否继续
@@ -2132,7 +2278,7 @@ def run_full_auto_workflow(auto_clear_old=True, auto_select_all=True, save_origi
     
     # 步骤2：分割原始图片
     if not step2_cut_screenshots(auto_mode=True, auto_clear_old=auto_clear_old,
-                                auto_select_all=auto_select_all, save_original=save_original):
+                                auto_select_all=auto_select_all, save_original=save_original, enable_preprocessing=True):
         if NODE_LOGGER_AVAILABLE:
             logger.log_error("步骤2失败，终止自动流程")
             logger.end_node("❌")
@@ -2355,15 +2501,474 @@ def clear_previous_results():
     
     print("\n✅ 清理完成！")
 
+def detect_equipment_quality():
+    """检测装备图像质量"""
+    print("\n" + "=" * 60)
+    print("检测装备图像质量")
+    print("=" * 60)
+    print("此功能将检测基准装备和切割装备的图像质量")
+    print("-" * 60)
+    
+    # 检查依赖
+    if not check_dependencies():
+        return False
+    
+    try:
+        from src.quality.equipment_detector import EquipmentDetector
+        from src.config_manager import get_config_manager
+        import cv2
+    except ImportError as e:
+        print(f"❌ 导入错误: {e}")
+        print("尝试直接导入模块...")
+        try:
+            import sys
+            sys.path.append(os.path.join(os.path.dirname(__file__), 'src'))
+            from quality.equipment_detector import EquipmentDetector
+            from config_manager import get_config_manager
+            import cv2
+        except ImportError as e2:
+            print(f"❌ 无法导入必要模块: {e2}")
+            return False
+    
+    # 初始化检测器
+    try:
+        config_manager = get_config_manager()
+        detector = EquipmentDetector(
+            target_size=tuple(config_manager.get_quality_config().get('target_size', [116, 116])),
+            min_resolution=config_manager.get_quality_config().get('min_resolution', 50)
+        )
+        print("✓ 质量检测器初始化成功")
+    except Exception as e:
+        print(f"❌ 质量检测器初始化失败: {e}")
+        return False
+    
+    # 检测基准装备质量
+    print("\n检测基准装备质量...")
+    base_equipment_dir = "images/base_equipment"
+    base_image_files = []
+    
+    if os.path.exists(base_equipment_dir):
+        for filename in os.listdir(base_equipment_dir):
+            if filename.lower().endswith(('.png', '.jpg', '.jpeg', '.webp')):
+                base_image_files.append(filename)
+    
+    if not base_image_files:
+        print("❌ 未找到基准装备图片")
+        return False
+    
+    base_quality_results = []
+    for filename in base_image_files:
+        file_path = os.path.join(base_equipment_dir, filename)
+        try:
+            result = detector.detect_image_quality(file_path)
+            quality_score = result.get('keypoints', {}).get('keypoint_count', 0)
+            is_good_quality = result.get('is_valid', True)
+            
+            base_quality_results.append({
+                'filename': filename,
+                'quality_score': quality_score,
+                'is_good_quality': is_good_quality
+            })
+            
+            status = "✓" if is_good_quality else "⚠️"
+            print(f"  {status} {filename}: 质量分数 {quality_score:.2f}")
+        except Exception as e:
+            print(f"  ❌ 检测 {filename} 失败: {e}")
+    
+    # 检测切割装备质量
+    print("\n检测切割装备质量...")
+    cropped_equipment_dir = "images/cropped_equipment"
+    cropped_files = []
+    
+    # 检查是否有时间命名的子目录
+    subdirs = []
+    if os.path.exists(cropped_equipment_dir):
+        for item in os.listdir(cropped_equipment_dir):
+            item_path = os.path.join(cropped_equipment_dir, item)
+            if os.path.isdir(item_path) and item.replace('_', '').replace(':', '').isdigit():
+                subdirs.append(item)
+    
+    if subdirs:
+        # 如果有时间命名的子目录，使用最新的一个
+        latest_dir = sorted(subdirs)[-1]
+        latest_dir_path = os.path.join(cropped_equipment_dir, latest_dir)
+        print(f"✓ 找到时间目录: {latest_dir}")
+        
+        for filename in os.listdir(latest_dir_path):
+            if filename.lower().endswith(('.png', '.jpg', '.jpeg', '.webp')):
+                cropped_files.append(os.path.join(latest_dir, filename))
+        
+        # 更新切割装备目录为最新的时间目录
+        cropped_equipment_dir = latest_dir_path
+    else:
+        # 如果没有时间命名的子目录，直接在主目录中查找
+        if os.path.exists(cropped_equipment_dir):
+            for filename in os.listdir(cropped_equipment_dir):
+                if filename.lower().endswith(('.png', '.jpg', '.jpeg', '.webp')):
+                    cropped_files.append(filename)
+    
+    if not cropped_files:
+        print("❌ 未找到切割装备图片")
+        return False
+    
+    cropped_quality_results = []
+    good_quality_count = 0
+    
+    for filename in cropped_files:
+        file_path = os.path.join(cropped_equipment_dir, filename)
+        try:
+            result = detector.detect_image_quality(file_path)
+            quality_score = result.get('keypoints', {}).get('keypoint_count', 0)
+            is_good_quality = result.get('is_valid', True)
+            
+            cropped_quality_results.append({
+                'filename': filename,
+                'quality_score': quality_score,
+                'is_good_quality': is_good_quality
+            })
+            
+            if is_good_quality:
+                good_quality_count += 1
+            
+            status = "✓" if is_good_quality else "⚠️"
+            print(f"  {status} {filename}: 质量分数 {quality_score:.2f}")
+        except Exception as e:
+            print(f"  ❌ 检测 {filename} 失败: {e}")
+    
+    # 生成质量报告
+    print("\n" + "=" * 60)
+    print("质量检测报告")
+    print("=" * 60)
+    
+    # 基准装备质量统计
+    base_good_count = sum(1 for r in base_quality_results if r['is_good_quality'])
+    print(f"基准装备: {base_good_count}/{len(base_quality_results)} 个质量合格")
+    
+    # 切割装备质量统计
+    print(f"切割装备: {good_quality_count}/{len(cropped_quality_results)} 个质量合格")
+    
+    # 质量改进建议
+    if good_quality_count < len(cropped_quality_results):
+        print("\n质量改进建议:")
+        print("1. 检查图像是否模糊，尝试使用更清晰的截图")
+        print("2. 调整图像亮度和对比度")
+        print("3. 确保装备图像完整，没有裁剪")
+        print("4. 使用图像预处理功能增强图像质量")
+    
+    # 保存详细报告
+    try:
+        import json
+        report_data = {
+            'timestamp': datetime.now().isoformat(),
+            'base_equipment': base_quality_results,
+            'cropped_equipment': cropped_quality_results,
+            'summary': {
+                'base_good_count': base_good_count,
+                'base_total_count': len(base_quality_results),
+                'cropped_good_count': good_quality_count,
+                'cropped_total_count': len(cropped_quality_results)
+            }
+        }
+        
+        report_dir = "quality_reports"
+        os.makedirs(report_dir, exist_ok=True)
+        report_path = os.path.join(report_dir, f"quality_report_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json")
+        
+        with open(report_path, 'w', encoding='utf-8') as f:
+            json.dump(report_data, f, indent=2, ensure_ascii=False)
+        
+        print(f"\n✓ 详细质量报告已保存: {report_path}")
+    except Exception as e:
+        print(f"\n⚠️ 保存质量报告失败: {e}")
+    
+    return True
+
+def test_v2_optimizations():
+    """测试V2.0优化功能"""
+    print("\n" + "=" * 60)
+    print("测试V2.0优化功能")
+    print("=" * 60)
+    print("此功能将测试所有V2.0版本的优化功能")
+    print("-" * 60)
+    
+    test_results = []
+    
+    try:
+        # 测试1：图像预处理流水线
+        print("\n1. 测试图像预处理流水线...")
+        try:
+            from src.preprocess.preprocess_pipeline import PreprocessPipeline
+            from src.config_manager import get_config_manager
+            
+            config_manager = get_config_manager()
+            preprocess_config = config_manager.get_preprocessing_config()
+            
+            # 创建预处理流水线
+            pipeline = PreprocessPipeline(
+                target_size=tuple(preprocess_config.get('target_size', [116, 116])),
+                enable_enhancement=preprocess_config.get('enable_enhancement', True)
+            )
+            
+            # 创建测试图像
+            import cv2
+            import numpy as np
+            test_image = np.ones((100, 100, 3), dtype=np.uint8) * 128
+            
+            # 测试预处理
+            processed_image = pipeline.process_image(test_image)
+            if processed_image is not None and processed_image.shape == tuple(preprocess_config.get('target_size', [116, 116])) + (3,):
+                print("✓ 图像预处理流水线测试通过")
+                test_results.append(("图像预处理流水线", True))
+            else:
+                print("❌ 图像预处理流水线测试失败")
+                test_results.append(("图像预处理流水线", False))
+        except Exception as e:
+            print(f"❌ 图像预处理流水线测试失败: {e}")
+            test_results.append(("图像预处理流水线", False))
+        
+        # 测试2：自动缓存更新器
+        print("\n2. 测试自动缓存更新器...")
+        try:
+            from src.cache.auto_cache_updater import AutoCacheUpdater
+            
+            # 创建临时目录进行测试
+            import tempfile
+            temp_dir = tempfile.mkdtemp()
+            
+            updater = AutoCacheUpdater(
+                cache_dir=temp_dir,
+                target_size=(116, 116),
+                nfeatures=3000,
+                auto_update=True
+            )
+            
+            # 测试缓存更新检查
+            result = updater.auto_update_if_needed("images/base_equipment")
+            print("✓ 自动缓存更新器测试通过")
+            test_results.append(("自动缓存更新器", True))
+            
+            # 清理临时目录
+            import shutil
+            shutil.rmtree(temp_dir)
+        except Exception as e:
+            print(f"❌ 自动缓存更新器测试失败: {e}")
+            test_results.append(("自动缓存更新器", False))
+        
+        # 测试3：图像哈希工具
+        print("\n3. 测试图像哈希工具...")
+        try:
+            from src.utils.image_hash import get_dhash, calculate_hamming_distance
+            import cv2
+            import numpy as np
+            
+            # 创建两个测试图像
+            img1 = np.ones((50, 50, 3), dtype=np.uint8) * 128
+            img2 = np.ones((50, 50, 3), dtype=np.uint8) * 128
+            
+            # 计算哈希
+            hash1 = get_dhash(img1)
+            hash2 = get_dhash(img2)
+            distance = calculate_hamming_distance(hash1, hash2)
+            
+            if distance == 0:  # 相同图像的哈希距离应该为0
+                print("✓ 图像哈希工具测试通过")
+                test_results.append(("图像哈希工具", True))
+            else:
+                print("❌ 图像哈希工具测试失败")
+                test_results.append(("图像哈希工具", False))
+        except Exception as e:
+            print(f"❌ 图像哈希工具测试失败: {e}")
+            test_results.append(("图像哈希工具", False))
+        
+        # 测试4：质量检测器
+        print("\n4. 测试质量检测器...")
+        try:
+            from src.quality.equipment_detector import EquipmentDetector
+            import cv2
+            import numpy as np
+            
+            # 创建测试图像
+            test_image = np.ones((100, 100, 3), dtype=np.uint8) * 128
+            
+            detector = EquipmentDetector()
+            # 使用detect_image_quality方法
+            import tempfile
+            temp_dir = tempfile.mkdtemp()
+            test_image_path = os.path.join(temp_dir, "test.png")
+            cv2.imwrite(test_image_path, test_image)
+            
+            result = detector.detect_image_quality(test_image_path)
+            quality_score = result.get('keypoints', {}).get('keypoint_count', 0)
+            is_good_quality = result.get('is_valid', True)
+            
+            # 清理临时目录
+            import shutil
+            shutil.rmtree(temp_dir)
+            
+            if isinstance(quality_score, (int, float)) and isinstance(is_good_quality, bool):
+                print("✓ 质量检测器测试通过")
+                test_results.append(("质量检测器", True))
+            else:
+                print("❌ 质量检测器测试失败")
+                test_results.append(("质量检测器", False))
+        except Exception as e:
+            print(f"❌ 质量检测器测试失败: {e}")
+            test_results.append(("质量检测器", False))
+        
+        # 测试5：可视化调试器
+        print("\n5. 测试可视化调试器...")
+        try:
+            from src.debug.visual_debugger import VisualDebugger
+            import tempfile
+            
+            # 创建临时目录进行测试
+            temp_dir = tempfile.mkdtemp()
+            
+            debugger = VisualDebugger(debug_dir=temp_dir, enable_debug=True)
+            
+            # 测试调试报告生成
+            debug_data = [{
+                'filename': 'test.png',
+                'similarity': 85.5,
+                'target_image': np.ones((100, 100, 3), dtype=np.uint8) * 128,
+                'base_image': np.ones((100, 100, 3), dtype=np.uint8) * 128,
+                'file_path': 'test.png'
+            }]
+            
+            report_path = debugger.generate_matching_report(
+                base_image_path='test.png',
+                matching_results=debug_data,
+                threshold=80.0
+            )
+            
+            if os.path.exists(report_path):
+                print("✓ 可视化调试器测试通过")
+                test_results.append(("可视化调试器", True))
+            else:
+                print("❌ 可视化调试器测试失败")
+                test_results.append(("可视化调试器", False))
+            
+            # 清理临时目录
+            import shutil
+            shutil.rmtree(temp_dir)
+        except Exception as e:
+            print(f"❌ 可视化调试器测试失败: {e}")
+            test_results.append(("可视化调试器", False))
+        
+        # 测试6：增强特征匹配器
+        print("\n6. 测试增强特征匹配器...")
+        try:
+            from src.equipment_recognizer import EnhancedEquipmentRecognizer
+            from src.feature_cache_manager import FeatureCacheManager
+            
+            # 创建增强识别器
+            enhanced_recognizer = EnhancedEquipmentRecognizer(
+                algorithm_type="enhanced_feature",
+                feature_type="ORB",
+                min_match_count=3,
+                match_ratio_threshold=0.5,
+                nfeatures=3000
+            )
+            
+            # 创建临时目录进行测试
+            import tempfile
+            temp_dir = tempfile.mkdtemp()
+            
+            # 创建测试图像
+            import cv2
+            import numpy as np
+            test_img1 = np.ones((100, 100, 3), dtype=np.uint8) * 128
+            test_img2 = np.ones((100, 100, 3), dtype=np.uint8) * 128
+            test_img1_path = os.path.join(temp_dir, "test1.png")
+            test_img2_path = os.path.join(temp_dir, "test2.png")
+            cv2.imwrite(test_img1_path, test_img1)
+            cv2.imwrite(test_img2_path, test_img2)
+            
+            # 测试图像比较
+            similarity, is_match = enhanced_recognizer.compare_images(test_img1_path, test_img2_path)
+            
+            if isinstance(similarity, (int, float)) and isinstance(is_match, bool):
+                print("✓ 增强特征匹配器测试通过")
+                test_results.append(("增强特征匹配器", True))
+            else:
+                print("❌ 增强特征匹配器测试失败")
+                test_results.append(("增强特征匹配器", False))
+            
+            # 清理临时目录
+            import shutil
+            shutil.rmtree(temp_dir)
+        except Exception as e:
+            print(f"❌ 增强特征匹配器测试失败: {e}")
+            test_results.append(("增强特征匹配器", False))
+        
+        # 测试7：ORB特征点优化
+        print("\n7. 测试ORB特征点优化...")
+        try:
+            from src.feature_cache_manager import FeatureCacheManager
+            
+            # 创建临时目录进行测试
+            import tempfile
+            temp_dir = tempfile.mkdtemp()
+            
+            # 创建缓存管理器，使用3000个特征点
+            cache_manager = FeatureCacheManager(
+                cache_dir=temp_dir,
+                target_size=(116, 116),
+                nfeatures=3000  # 测试3000个特征点
+            )
+            
+            # 验证特征点数量设置
+            if cache_manager.nfeatures == 3000:
+                print("✓ ORB特征点优化测试通过")
+                test_results.append(("ORB特征点优化", True))
+            else:
+                print("❌ ORB特征点优化测试失败")
+                test_results.append(("ORB特征点优化", False))
+            
+            # 清理临时目录
+            import shutil
+            shutil.rmtree(temp_dir)
+        except Exception as e:
+            print(f"❌ ORB特征点优化测试失败: {e}")
+            test_results.append(("ORB特征点优化", False))
+        
+    except Exception as e:
+        print(f"❌ V2.0优化测试过程中出错: {e}")
+        test_results.append(("测试执行", False))
+    
+    # 输出测试结果
+    print("\n" + "=" * 60)
+    print("V2.0优化测试结果汇总")
+    print("=" * 60)
+    
+    passed = 0
+    total = len(test_results)
+    
+    for test_name, result in test_results:
+        status = "✓ 通过" if result else "✗ 失败"
+        print(f"{test_name:20} {status}")
+        if result:
+            passed += 1
+    
+    print("-" * 60)
+    print(f"总计: {passed}/{total} 个测试通过")
+    
+    if passed == total:
+        print("🎉 V2.0优化功能测试全部通过！")
+        return True
+    else:
+        print("⚠️ 部分测试失败，请检查相关功能。")
+        return False
+
 def show_menu():
     """显示主菜单"""
     print("\n" + "=" * 60)
-    print("游戏装备图像识别系统 - 增强版")
+    print("游戏装备图像识别系统 - 增强版 V2.0")
     print("=" * 60)
     print("【工作流程】")
     print("1. 步骤1：获取原始图片")
-    print("2. 步骤2：分割原始图片")
-    print("3. 步骤3：装备识别匹配")
+    print("2. 步骤2：分割原始图片（含预处理）")
+    print("3. 步骤3：装备识别匹配（含缓存更新）")
     print("4. 步骤4：整合装备名称和金额识别结果")
     print("5. 运行完整工作流程（交互式）")
     print("6. 🚀 运行全自动工作流程（推荐）")
@@ -2377,6 +2982,12 @@ def show_menu():
     print("12. 运行特征缓存测试")
     print("13. 运行性能测试")
     print("14. 运行MVP测试")
+    print("19. 🆕 测试V2.0优化功能")
+    print("-" * 60)
+    print("【V2.0新功能】")
+    print("20. 🆕 检测装备图像质量")
+    print("21. 🆕 生成可视化调试报告")
+    print("22. 🆕 图像哈希重复检测")
     print("-" * 60)
     print("【其他功能】")
     print("15. 检查环境和依赖")
@@ -2399,7 +3010,7 @@ def main():
         show_menu()
         
         try:
-            choice = input("请选择操作 (0-18): ").strip()
+            choice = input("请选择操作 (0-22): ").strip()
             
             if choice == '0':
                 print("感谢使用，再见！")
@@ -2456,8 +3067,124 @@ def main():
                 clear_previous_results()
             elif choice == '18':
                 generate_annotated_screenshots()
+            elif choice == '19':
+                test_v2_optimizations()
+            elif choice == '20':
+                detect_equipment_quality()
+            elif choice == '21':
+                step3_match_equipment(auto_mode=False, enable_debug=True)
+            elif choice == '22':
+                # 图像哈希重复检测
+                try:
+                    from src.utils.image_hash import get_dhash, calculate_hamming_distance
+                    import cv2
+                    
+                    print("\n" + "=" * 60)
+                    print("图像哈希重复检测")
+                    print("=" * 60)
+                    
+                    # 检测基准装备
+                    base_equipment_dir = "images/base_equipment"
+                    if os.path.exists(base_equipment_dir):
+                        print("\n检测基准装备重复...")
+                        base_files = [f for f in os.listdir(base_equipment_dir) if f.lower().endswith(('.png', '.jpg', '.jpeg', '.webp'))]
+                        base_hashes = {}
+                        
+                        for filename in base_files:
+                            file_path = os.path.join(base_equipment_dir, filename)
+                            try:
+                                image = cv2.imread(file_path)
+                                if image is not None:
+                                    base_hashes[filename] = get_dhash(image)
+                            except Exception as e:
+                                print(f"⚠️ 计算基准装备哈希失败 {filename}: {e}")
+                        
+                        # 检测重复的基准装备
+                        duplicate_base = []
+                        for i, (file1, hash1) in enumerate(base_hashes.items()):
+                            for file2, hash2 in list(base_hashes.items())[i+1:]:
+                                distance = calculate_hamming_distance(hash1, hash2)
+                                if distance < 5:  # 阈值可配置
+                                    duplicate_base.append((file1, file2, distance))
+                        
+                        if duplicate_base:
+                            print(f"⚠️ 检测到 {len(duplicate_base)} 个可能重复的基准装备:")
+                            for file1, file2, distance in duplicate_base:
+                                print(f"  - {file1} 与 {file2} 相似 (距离: {distance})")
+                        else:
+                            print("✓ 未检测到重复的基准装备")
+                    
+                    # 检测切割装备
+                    cropped_equipment_dir = "images/cropped_equipment"
+                    if os.path.exists(cropped_equipment_dir):
+                        print("\n检测切割装备重复...")
+                        cropped_files = []
+                        
+                        # 检查是否有时间命名的子目录
+                        subdirs = []
+                        for item in os.listdir(cropped_equipment_dir):
+                            item_path = os.path.join(cropped_equipment_dir, item)
+                            if os.path.isdir(item_path) and item.replace('_', '').replace(':', '').isdigit():
+                                subdirs.append(item)
+                        
+                        if subdirs:
+                            # 如果有时间命名的子目录，使用最新的一个
+                            latest_dir = sorted(subdirs)[-1]
+                            latest_dir_path = os.path.join(cropped_equipment_dir, latest_dir)
+                            print(f"✓ 找到时间目录: {latest_dir}")
+                            
+                            for filename in os.listdir(latest_dir_path):
+                                if filename.lower().endswith(('.png', '.jpg', '.jpeg', '.webp')):
+                                    cropped_files.append(os.path.join(latest_dir, filename))
+                            
+                            # 更新切割装备目录为最新的时间目录
+                            cropped_equipment_dir = latest_dir_path
+                        else:
+                            # 如果没有时间命名的子目录，直接在主目录中查找
+                            for filename in os.listdir(cropped_equipment_dir):
+                                if filename.lower().endswith(('.png', '.jpg', '.jpeg', '.webp')):
+                                    cropped_files.append(filename)
+                        
+                        if cropped_files:
+                            cropped_hashes = {}
+                            for filename in cropped_files:
+                                file_path = os.path.join(cropped_equipment_dir, filename)
+                                try:
+                                    image = cv2.imread(file_path)
+                                    if image is not None:
+                                        cropped_hashes[filename] = get_dhash(image)
+                                except Exception as e:
+                                    print(f"⚠️ 计算切割装备哈希失败 {filename}: {e}")
+                            
+                            # 检测重复的切割装备
+                            duplicate_cropped = []
+                            for i, (file1, hash1) in enumerate(cropped_hashes.items()):
+                                for file2, hash2 in list(cropped_hashes.items())[i+1:]:
+                                    distance = calculate_hamming_distance(hash1, hash2)
+                                    if distance < 5:  # 阈值可配置
+                                        duplicate_cropped.append((file1, file2, distance))
+                            
+                            if duplicate_cropped:
+                                print(f"⚠️ 检测到 {len(duplicate_cropped)} 个可能重复的切割装备:")
+                                for file1, file2, distance in duplicate_cropped[:10]:  # 只显示前10个
+                                    print(f"  - {file1} 与 {file2} 相似 (距离: {distance})")
+                                if len(duplicate_cropped) > 10:
+                                    print(f"  ... 还有 {len(duplicate_cropped) - 10} 个重复项")
+                            else:
+                                print("✓ 未检测到重复的切割装备")
+                        else:
+                            print("⚠️ 未找到切割装备图片")
+                    
+                    print("\n" + "=" * 60)
+                    print("图像哈希重复检测完成")
+                    print("=" * 60)
+                    
+                except ImportError as e:
+                    print(f"❌ 图像哈希工具不可用: {e}")
+                except Exception as e:
+                    print(f"❌ 图像哈希检测失败: {e}")
             else:
-                print("无效选择，请输入0-18之间的数字")
+                print("无效选择，请输入0-22之间的数字")
                 
         except KeyboardInterrupt:
             print("\n\n程序被用户中断")

@@ -132,6 +132,7 @@ dmypy.json
 images/
 recognition_logs/
 output/
+test_output/
 *.pkl
 *.csv
 !config.json

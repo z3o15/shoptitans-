@@ -1,7 +1,7 @@
 {
   "recognition": {
-    "default_threshold": 80,
-    "algorithm_type": "enhanced_feature",
+    "default_threshold": 55,
+    "algorithm_type": "advanced",
     "feature_type": "ORB",
     "min_match_count": 8,
     "match_ratio_threshold": 0.75,
@@ -11,18 +11,38 @@
     "enable_histogram": true,
     "target_size": [116, 116],
     "nfeatures": 3000,
+    "scale_factor": 1.1,
+    "edge_threshold": 15,
+    "block_size": 31,
     "use_cache": true,
     "cache_dir": "images/cache",
     "auto_cache_update": true,
-    "algorithm_description": "特征匹配算法(ORB)提供最准确的装备识别，高级模板匹配提供彩色匹配，传统dHash算法提供更快的处理速度"
+    "algorithm_description": "高级彩色模板匹配算法保留RGB颜色信息，支持掩码和直方图验证，提供最准确的装备识别"
   },
   "preprocessing": {
     "enable_enhancement": true,
-    "histogram_equalization": true,
+    "histogram_equalization": false,
+    "clahe_enhancement": true,
+    "clahe_clip_limit": 2.0,
+    "clahe_grid_size": [8, 8],
     "gaussian_blur": true,
+    "gaussian_kernel": [3, 3],
+    "gaussian_sigma": 0.5,
     "canny_edges": true,
-    "canny_low_threshold": 30,
-    "canny_high_threshold": 120
+    "canny_use_adaptive_threshold": false,
+    "canny_low_threshold": 50,
+    "canny_high_threshold": 150,
+    "morphology_post_process": false,
+    "morphology_kernel": [3, 3],
+    "morphology_iterations": 1
+  },
+  "background_removal": {
+    "gaussian_blur_kernel": [3, 3],
+    "canny_threshold1": 40,
+    "canny_threshold2": 120,
+    "morph_kernel_size": [5, 5],
+    "morph_close_iterations": 2,
+    "morph_open_iterations": 1
   },
   "feature_cache": {
     "enabled": true,
@@ -63,6 +83,7 @@
     "base_equipment_dir": "base_equipment",
     "game_screenshots_dir": "game_screenshots",
     "cropped_equipment_dir": "cropped_equipment",
+    "cropped_equipment_original_dir": "cropped_equipment_original/20251123_214236",
     "logs_dir": "recognition_logs"
   },
   "logging": {
