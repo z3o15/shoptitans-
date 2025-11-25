@@ -380,9 +380,30 @@ class EnhancedOCRRecognizer:
         Returns:
             预处理后的图像
         """
-        # 读取图像
-        image = cv2.imread(image_path)
-        if image is None:
+        # 读取图像 - 使用支持中文路径的方法
+        self.logger.debug(f"尝试读取图像: {image_path}")
+        self.logger.debug(f"路径编码: {image_path.encode('utf-8')}")
+        
+        try:
+            # 方法1: 使用numpy.fromfile + cv2.imdecode (支持中文路径)
+            image_array = np.fromfile(image_path, dtype=np.uint8)
+            image = cv2.imdecode(image_array, cv2.IMREAD_COLOR)
+            
+            if image is None:
+                self.logger.error(f"cv2.imdecode返回None，尝试使用PIL")
+                # 方法2: 使用PIL作为备选
+                from PIL import Image as PILImage
+                pil_img = PILImage.open(image_path)
+                if pil_img.mode == 'RGBA':
+                    background = PILImage.new('RGB', pil_img.size, (255, 255, 255))
+                    background.paste(pil_img, mask=pil_img.split()[-1])
+                    pil_img = background
+                image = cv2.cvtColor(np.array(pil_img), cv2.COLOR_RGB2BGR)
+            
+            self.logger.debug(f"成功读取图像: shape={image.shape}")
+            
+        except Exception as e:
+            self.logger.error(f"读取图像失败: {image_path}, 错误: {e}")
             raise FileNotFoundError(f"无法读取图像: {image_path}")
         
         # 获取OCR配置中的区域设置

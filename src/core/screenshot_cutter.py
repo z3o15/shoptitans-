@@ -40,8 +40,8 @@ class ScreenshotCutter:
             outline='red', width=3
         )
         
-        # 创建圆形图像（黑色背景，用于JPG格式）
-        circle_img_rgb = Image.new('RGB', (circle_size, circle_size), (0, 0, 0))
+        # 创建透明背景的RGBA图像
+        circle_img_rgba = Image.new('RGBA', (circle_size, circle_size), (0, 0, 0, 0))
         
         # 计算圆形区域的边界
         left = max(0, center_x - radius)
@@ -56,8 +56,7 @@ class ScreenshotCutter:
         paste_x = (circle_size - (right - left)) // 2
         paste_y = (circle_size - (bottom - top)) // 2
         
-        # 创建临时RGBA图像用于圆形处理
-        circle_img_rgba = Image.new('RGBA', (circle_size, circle_size), (0, 0, 0, 0))
+        # 将切割区域粘贴到透明背景上
         circle_img_rgba.paste(crop_region, (paste_x, paste_y))
         
         # 创建圆形遮罩
@@ -68,11 +67,20 @@ class ScreenshotCutter:
         # 应用遮罩，使圆形外部透明
         circle_img_rgba.putalpha(mask)
         
-        # 将RGBA图像合成到RGB背景上
-        circle_img_rgb.paste(circle_img_rgba, (0, 0), circle_img_rgba)
+        # 创建一个副本用于处理右下角区域（保留透明度）
+        circle_img_processed = circle_img_rgba.copy()
+        draw = ImageDraw.Draw(circle_img_processed)
+        
+        # 创建圆形遮罩，确保黑色矩形只在圆形内部
+        circle_mask = Image.new('L', (circle_size, circle_size), 0)
+        mask_draw = ImageDraw.Draw(circle_mask)
+        mask_draw.ellipse([(0, 0), (circle_size, circle_size)], fill=255)
+        
+        # 创建临时图像用于绘制黑色矩形
+        temp_img = Image.new('RGBA', (circle_size, circle_size), (0, 0, 0, 0))
+        temp_draw = ImageDraw.Draw(temp_img)
         
         # 将右下角28*60像素区域设置为黑色（避免影响后续匹配）
-        draw = ImageDraw.Draw(circle_img_rgb)
         # 从右下角开始计算位置
         right_x = circle_size - 1  # 最右边的像素
         bottom_y = circle_size - 1  # 最下边的像素
@@ -83,11 +91,20 @@ class ScreenshotCutter:
         left_x = max(0, left_x)
         top_y = max(0, top_y)
         
-        # 绘制黑色矩形覆盖右下角区域
-        draw.rectangle([(left_x, top_y), (right_x, bottom_y)], fill=(0, 0, 0))
+        # 在临时图像上绘制紫色矩形 (57, 34, 42)
+        temp_draw.rectangle([(left_x, top_y), (right_x, bottom_y)], fill=(57, 34, 42, 255))
         
-        # 使用RGB图像作为最终结果
-        circle_img = circle_img_rgb
+        # 使用圆形遮罩将黑色矩形限制在圆形内
+        # 将临时图像合成到圆形图像上，但只在圆形区域内
+        for y in range(circle_size):
+            for x in range(circle_size):
+                if circle_mask.getpixel((x, y)) == 255:  # 在圆形内
+                    pixel = temp_img.getpixel((x, y))
+                    if pixel[3] > 0:  # 如果临时图像的该像素不透明
+                        circle_img_processed.putpixel((x, y), pixel)
+        
+        # 使用RGBA图像作为最终结果（保留透明度）
+        circle_img = circle_img_processed
         
         return img_with_circle, circle_img
     
@@ -172,15 +189,10 @@ class ScreenshotCutter:
                                 else:
                                     img_with_circle.save(crop_path, format='JPEG', quality=95)
                             
-                            # 保存圆形区域为JPG格式
-                            circle_path = os.path.join(output_folder, f"item_{row}_{col}_circle.jpg")
-                            # 确保图像是RGB模式，不是RGBA
-                            if circle_region.mode == 'RGBA':
-                                rgb_img = Image.new('RGB', circle_region.size, (255, 255, 255))
-                                rgb_img.paste(circle_region, mask=circle_region.split()[-1])
-                                rgb_img.save(circle_path, format='JPEG', quality=95)
-                            else:
-                                circle_region.save(circle_path, format='JPEG', quality=95)
+                            # 保存圆形区域为PNG格式（保留透明度）
+                            circle_path = os.path.join(output_folder, f"item_{row}_{col}_circle.png")
+                            # 直接保存为PNG格式，保留透明度
+                            circle_region.save(circle_path, format='PNG')
                             
                             # 注意：marker目录不保存圆形区域文件，只保存完整的带圆形标记的图片
                         else:

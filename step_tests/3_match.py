@@ -1,941 +1,724 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-步骤3：装备图片匹配功能测试
-从 3_step2_cut_screenshots.py 提取的图像匹配模块
+步骤3：装备图片匹配功能
+
+本模块专注于装备图片匹配功能，实现两阶段匹配策略：
+1. LAB色彩空间模板匹配筛选候选
+2. 像素级LAB欧氏距离颜色匹配区分高分候选
+
+优化特性：
+- 使用LAB色彩空间进行模板匹配，更好地区分彩色装备
+- 最小化文件输出，只保留最终对比图
+- 内存中处理掩码，避免文件激增
+- 导出CSV表格记录匹配结果
 """
 
 import os
 import sys
-import subprocess
-from datetime import datetime
 import json
+import csv
+import logging
+from pathlib import Path
+from typing import Optional, List, Dict, Tuple, Generator
+from dataclasses import dataclass, asdict
+from datetime import datetime
+
 import cv2
 import numpy as np
 from PIL import Image
 
-# 添加项目根目录到Python路径，以便能够导入src模块
-project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
-if project_root not in sys.path:
-    sys.path.insert(0, project_root)
+# 添加项目根目录到Python路径
+sys.path.append(str(Path(__file__).parent.parent))
 
-# 导入新的统一日志管理器
-try:
-    from src.unified_logger import get_unified_logger
-    LOGGER_AVAILABLE = True
-except ImportError:
-    try:
-        from unified_logger import get_unified_logger
-        LOGGER_AVAILABLE = True
-    except ImportError:
-        LOGGER_AVAILABLE = False
-        print("⚠️ 统一日志管理器不可用，使用默认输出")
+# ==================== 配置日志 ====================
+logging.basicConfig(
+    level=logging.INFO,
+    format='[%(asctime)s] [%(levelname)s] %(message)s',
+    datefmt='%Y-%m-%d %H:%M:%S'
+)
+logger = logging.getLogger(__name__)
 
-# 导入统一的背景掩码函数
-try:
-    from src.utils.background_mask import create_background_mask
-except ImportError:
-    try:
-        from utils.background_mask import create_background_mask
-    except ImportError:
-        if LOGGER_AVAILABLE:
-            logger = get_step_logger()
-            logger.log_warning("无法导入统一的背景掩码函数，将使用本地定义")
-        else:
-            print("⚠️ 无法导入统一的背景掩码函数，将使用本地定义")
-        # 如果无法导入，定义一个本地函数作为后备
-        def create_background_mask(image, target_color_bgr=(46, 33, 46), tolerance=20):
-            """本地后备的背景掩码函数"""
-            try:
-                # 创建颜色范围掩码
-                lower_bound = np.array([
-                    max(0, target_color_bgr[0] - tolerance),
-                    max(0, target_color_bgr[1] - tolerance),
-                    max(0, target_color_bgr[2] - tolerance)
-                ])
-                upper_bound = np.array([
-                    min(255, target_color_bgr[0] + tolerance),
-                    min(255, target_color_bgr[1] + tolerance),
-                    min(255, target_color_bgr[2] + tolerance)
-                ])
-                
-                mask_bg = cv2.inRange(image, lower_bound, upper_bound)
-                
-                # 创建浅紫色掩码
-                light_purple_lower = np.array([241, 240, 241])
-                light_purple_upper = np.array([247, 250, 247])
-                mask_light_purple = cv2.inRange(image, light_purple_lower, light_purple_upper)
-                
-                # 创建第三种颜色掩码
-                third_color_lower = np.array([45, 30, 35])
-                third_color_upper = np.array([65, 40, 50])
-                mask_third_color = cv2.inRange(image, third_color_lower, third_color_upper)
-                
-                # 合并掩码
-                mask_combined = cv2.bitwise_or(mask_bg, mask_light_purple)
-                mask_combined = cv2.bitwise_or(mask_combined, mask_third_color)
-                
-                # 应用轻微高斯模糊
-                mask_combined = cv2.GaussianBlur(mask_combined, (3, 3), 0.5)
-                
-                # 二值化
-                _, mask_combined = cv2.threshold(mask_combined, 200, 255, cv2.THRESH_BINARY)
-                
-                return mask_combined
-            except Exception as e:
-                if LOGGER_AVAILABLE:
-                    logger.log_error(f"背景掩码创建失败: {e}")
+
+# ==================== 数据类 ====================
+@dataclass
+class MatchResult:
+    """匹配结果数据类"""
+    base_image: str
+    compare_image: str
+    template_score: float
+    template_method: str
+    color_score: float
+    composite_score: float
+    debug_info: Dict = None  # 调试信息
+    
+    def to_dict(self) -> Dict:
+        """转换为字典"""
+        return asdict(self)
+
+
+@dataclass
+class MatchConfig:
+    """匹配配置数据类"""
+    template_threshold: float = 70.0
+    max_color_distance: float = 300.0
+    circle_radius: int = 55
+    equipment_ratio_threshold: float = 0.02  # 降低阈值
+    save_comparison_images: bool = True
+    use_circle_mask: bool = True  # 是否使用圆形掩码
+
+
+# ==================== 图像处理工具类 ====================
+class ImageProcessor:
+    """图像处理工具类"""
+    
+    @staticmethod
+    def load_image(image_path: Path) -> Optional[np.ndarray]:
+        """加载图像并处理透明通道"""
+        try:
+            img = Image.open(image_path)
+            if img.mode == 'RGBA':
+                background = Image.new('RGB', img.size, (255, 255, 255))
+                background.paste(img, mask=img.split()[-1])
+                img = background
+            
+            img_array = np.array(img)
+            if len(img_array.shape) == 3 and img_array.shape[2] == 3:
+                img_array = cv2.cvtColor(img_array, cv2.COLOR_RGB2BGR)
+            
+            return img_array
+        except Exception as e:
+            logger.error(f"加载图像失败 {image_path}: {e}")
+            return None
+    
+    @staticmethod
+    def create_equipment_mask(image: np.ndarray, radius: int = 55, tolerance: int = 23, erode_iterations: int = 2) -> np.ndarray:
+        """创建装备本体掩码（精确版：只去除紫色背景，保留装备细节）"""
+        try:
+            height, width = image.shape[:2]
+            if height != 116 or width != 116:
+                image = cv2.resize(image, (116, 116))
+                height, width = 116, 116
+            
+            center_x, center_y = width // 2, height // 2
+            max_radius = min(center_x, center_y)
+            radius = min(radius, max_radius)
+            
+            circle_mask = np.zeros((height, width), dtype=np.uint8)
+            cv2.circle(circle_mask, (center_x, center_y), radius, 255, -1)
+            
+            # 检测紫色区域 (BGR: 46, 33, 46) - 扩大范围以覆盖所有紫色变体
+            purple_mask = cv2.inRange(image, np.array([25, 15, 25]), np.array([70, 55, 70]))
+            
+            # 关键：只在圆形边缘区域去除紫色，保留中心装备的所有颜色
+            # 创建边缘环形区域（外圈35像素，大幅扩大边缘区域）
+            inner_circle = np.zeros((height, width), dtype=np.uint8)
+            # 内圈半径缩小到20，这样边缘区域从半径20到55，宽度35像素
+            cv2.circle(inner_circle, (center_x, center_y), 0, 255, -1)
+            
+            # 边缘区域 = 圆形掩码 - 内圈
+            edge_region = cv2.subtract(circle_mask, inner_circle)
+            
+            # 只在边缘区域去除紫色
+            purple_in_edge = cv2.bitwise_and(purple_mask, edge_region)
+            
+            # 最终掩码 = 圆形区域 - 边缘紫色
+            equipment_mask = cv2.bitwise_and(circle_mask, cv2.bitwise_not(purple_in_edge))
+            
+            # 轻微形态学处理
+            kernel = np.ones((5, 8), np.uint8)
+            equipment_mask = cv2.morphologyEx(equipment_mask, cv2.MORPH_CLOSE, kernel, iterations=1)
+            
+            # 轻微羽化
+            equipment_mask = cv2.GaussianBlur(equipment_mask.astype(np.float32), (7, 7), 4)
+            _, equipment_mask = cv2.threshold(equipment_mask, 200, 255, cv2.THRESH_BINARY)
+            
+            return equipment_mask.astype(np.uint8)
+        except Exception as e:
+            logger.error(f"装备掩码创建失败: {e}")
+            return np.zeros((image.shape[0], image.shape[1]), dtype=np.uint8)
+
+
+# ==================== 匹配器类 ====================
+class EquipmentMatcher:
+    """装备匹配器类 - 使用LAB色彩空间"""
+    
+    def __init__(self, config: MatchConfig = None):
+        self.config = config or MatchConfig()
+        self.processor = ImageProcessor()
+    
+    def template_matching_lab(self, template: np.ndarray, scene: np.ndarray) -> Tuple[float, str]:
+        """使用LAB色彩空间三通道加权匹配"""
+        try:
+            if template.shape[0] > scene.shape[0] or template.shape[1] > scene.shape[1]:
+                scene = cv2.resize(scene, (template.shape[1], template.shape[0]))
+            
+            template_lab = cv2.cvtColor(template, cv2.COLOR_BGR2LAB) if len(template.shape) == 3 else template
+            scene_lab = cv2.cvtColor(scene, cv2.COLOR_BGR2LAB) if len(scene.shape) == 3 else scene
+            
+            # 使用LAB三通道加权匹配
+            scores = []
+            weights = [0.5, 0.25, 0.25]  # L, A, B 通道权重
+            
+            for i, weight in enumerate(weights):
+                if len(template_lab.shape) == 3:
+                    template_channel = template_lab[:, :, i]
+                    scene_channel = scene_lab[:, :, i]
                 else:
-                    log_message("ERROR", f"背景掩码创建失败: {e}")
-                return np.zeros((image.shape[0], image.shape[1]), dtype=np.uint8)
-
-def check_dependencies():
-    """检查依赖是否已安装"""
-    required_packages = ['cv2', 'PIL', 'numpy']
-    missing_packages = []
+                    template_channel = template_lab
+                    scene_channel = scene_lab
+                
+                result = cv2.matchTemplate(scene_channel, template_channel, cv2.TM_CCOEFF_NORMED)
+                _, max_val, _, _ = cv2.minMaxLoc(result)
+                scores.append(max_val * weight)
+            
+            # 加权平均
+            final_score = sum(scores) * 100
+            return final_score, "TM_LAB_WEIGHTED"
+        except Exception as e:
+            logger.error(f"LAB模板匹配失败: {e}")
+            return 0.0, ""
     
-    for package in required_packages:
+    def calculate_histogram_similarity(self, img1: np.ndarray, img2: np.ndarray, mask: np.ndarray) -> float:
+        """
+        计算直方图相似度（对边缘锯齿不敏感）
+        
+        Args:
+            img1: 第一张图像
+            img2: 第二张图像
+            mask: 掩码
+            
+        Returns:
+            直方图相似度（0-1）
+        """
         try:
-            if package == 'cv2':
-                import cv2
-            elif package == 'PIL':
-                from PIL import Image
-            elif package == 'numpy':
-                import numpy
-        except ImportError:
-            missing_packages.append(package)
+            # 计算LAB空间的直方图
+            lab1 = cv2.cvtColor(img1, cv2.COLOR_BGR2LAB)
+            lab2 = cv2.cvtColor(img2, cv2.COLOR_BGR2LAB)
+            
+            # 使用8x8x8的bins
+            hist1 = cv2.calcHist([lab1], [0, 1, 2], mask, [8, 8, 8], [0, 256, 0, 256, 0, 256])
+            hist2 = cv2.calcHist([lab2], [0, 1, 2], mask, [8, 8, 8], [0, 256, 0, 256, 0, 256])
+            
+            # 归一化
+            cv2.normalize(hist1, hist1, alpha=0, beta=1, norm_type=cv2.NORM_MINMAX)
+            cv2.normalize(hist2, hist2, alpha=0, beta=1, norm_type=cv2.NORM_MINMAX)
+            
+            # 使用相关性方法比较（返回值范围-1到1，1表示完全相同）
+            similarity = cv2.compareHist(hist1, hist2, cv2.HISTCMP_CORREL)
+            
+            # 转换为0-1范围
+            similarity = (similarity + 1) / 2
+            
+            return max(0, min(1, similarity))
+        except Exception as e:
+            logger.error(f"直方图相似度计算失败: {e}")
+            return 0.0
     
-    if missing_packages:
-        print(f"缺少依赖包: {', '.join(missing_packages)}")
-        print("正在安装依赖...")
+    def calculate_color_similarity_lab(self, img1: np.ndarray, img2: np.ndarray) -> Tuple[float, Dict]:
+        """计算颜色相似度（LAB色彩空间像素级欧氏距离 + 直方图）"""
         try:
-            subprocess.check_call([sys.executable, "-m", "pip", "install", "-r", "requirements.txt"])
-            return True
-        except subprocess.CalledProcessError:
-            print("依赖安装失败，请手动运行: pip install -r requirements.txt")
-            return False
-    
-    return True
-
-def log_message(tag, message):
-    """统一日志输出格式"""
-    if LOGGER_AVAILABLE:
-        logger = get_step_logger()
-        if tag == "ERROR":
-            logger.log_error(message)
-        elif tag == "WARNING":
-            logger.log_warning(message)
-        elif tag == "RESULT":
-            logger.log_info(message)
-        else:
-            logger.log_info(f"[{tag}] {message}")
-    else:
-        print(f"[{tag}] {message}")
-
-def load_image(image_path):
-    """加载图像并处理透明通道"""
-    try:
-        # 使用PIL加载图像以正确处理透明通道
-        img = Image.open(image_path)
-        
-        # 如果是RGBA图像，转换为RGB（白色背景）
-        if img.mode == 'RGBA':
-            background = Image.new('RGB', img.size, (255, 255, 255))
-            background.paste(img, mask=img.split()[-1])
-            img = background
-        
-        # 转换为numpy数组
-        img_array = np.array(img)
-        
-        # 转换为BGR格式（OpenCV格式）
-        if len(img_array.shape) == 3 and img_array.shape[2] == 3:
-            img_array = cv2.cvtColor(img_array, cv2.COLOR_RGB2BGR)
-        
-        return img_array
-    except Exception as e:
-        log_message("ERROR", f"加载图像失败 {image_path}: {e}")
-        return None
-
-def template_matching(template, scene):
-    """
-    使用cv2.TM_CCOEFF_NORMED进行模板匹配
-    返回匹配相似度（0-100%）
-    """
-    try:
-        # 确保模板不大于场景
-        if template.shape[0] > scene.shape[0] or template.shape[1] > scene.shape[1]:
-            # 如果模板大于场景，调整场景大小
-            scene = cv2.resize(scene, (template.shape[1], template.shape[0]))
-        
-        # 转换为灰度图像进行匹配
-        if len(template.shape) == 3:
-            template_gray = cv2.cvtColor(template, cv2.COLOR_BGR2GRAY)
-        else:
-            template_gray = template
+            target_size = (116, 116)
+            img1_resized = cv2.resize(img1, target_size)
+            img2_resized = cv2.resize(img2, target_size)
             
-        if len(scene.shape) == 3:
-            scene_gray = cv2.cvtColor(scene, cv2.COLOR_BGR2GRAY)
-        else:
-            scene_gray = scene
-        
-        # 只使用TM_CCOEFF_NORMED方法
-        result = cv2.matchTemplate(scene_gray, template_gray, cv2.TM_CCOEFF_NORMED)
-        min_val, max_val, min_loc, max_loc = cv2.minMaxLoc(result)
-        score = max_val * 100  # 转换为0-100%
-        
-        return score, "TM_CCOEFF_NORMED"
-    except Exception as e:
-        log_message("ERROR", f"模板匹配失败: {e}")
-        return 0, ""
-
-# create_background_mask函数已移至src/utils/background_mask.py，现在从那里导入
-
-def apply_mask_to_image(image, mask):
-    """
-    将掩码应用到图像，生成掩码后的图像
-    背景区域变为白色，前景区域（装备+紫色圆形）保持原色
-    
-    掩码逻辑（与create_background_mask一致）：
-    - 255值: 前景区域(装备本体 + 圆圈紫色区域，应该被保留用于匹配)
-    - 0值: 背景区域(矩形整体背景，外圈紫色以外区域，应该被忽略)
-    """
-    try:
-        # 创建白色背景
-        white_bg = np.ones_like(image) * 255
-        
-        # 确保掩码是二值的（0和255）
-        mask_binary = np.where(mask > 127, 255, 0).astype(np.uint8)
-        
-        # 将前景区域（装备+紫色圆形）复制到白色背景上
-        # 掩码中255是装备+紫色圆形，0是背景（与create_background_mask的输出一致）
-        result = np.where(mask_binary[:, :, np.newaxis] == 255, image, white_bg)
-        
-        return result
-    except Exception as e:
-        log_message("ERROR", f"掩码应用失败: {e}")
-        return image
-
-def calculate_color_similarity_with_euclidean(img1, img2, output_dir=None):
-    """
-    使用LAB色彩空间欧氏距离计算两张图片的颜色相似度
-    使用圆形掩码策略：在矩形中心画一个半径为55的圆，圆内紫色去除，圆外黑色
-    改进：使用像素级欧氏距离平均，而不是整图平均，提高稳健性
-    只计算圆形区域内非紫色装备本体的颜色相似度
-    LAB色彩空间更接近人类视觉感知
-    返回相似度（0-1）
-    
-    Args:
-        img1: 第一张图像
-        img2: 第二张图像
-        output_dir: 输出目录，用于保存掩码图像进行验证
-    """
-    try:
-        # 调整图像大小为相同尺寸（保持116*116）
-        target_size = (116, 116)  # 保持原始尺寸
-        img1_resized = cv2.resize(img1, target_size)
-        img2_resized = cv2.resize(img2, target_size)
-        
-        # 使用圆形掩码策略：在矩形中心画一个半径为55的圆，圆内紫色去除，圆外黑色
-        log_message("DEBUG", "使用改进的圆形掩码策略计算颜色相似度（像素级欧氏距离）")
-        
-        # 创建装备本体掩码（圆形区域内非紫色部分）
-        equipment_mask1 = create_equipment_only_mask(img1_resized)
-        equipment_mask2 = create_equipment_only_mask(img2_resized)
-        
-        # 创建组合装备掩码（两张图片都有装备的区域）
-        combined_equipment_mask = cv2.bitwise_and(equipment_mask1, equipment_mask2)
-        
-        # 保存装备本体掩码图像用于验证
-        if output_dir:
-            equipment_mask_dir = os.path.join(output_dir, "equipment_masks")
-            os.makedirs(equipment_mask_dir, exist_ok=True)
+            # 创建掩码（改进版：去除紫色、透明部分和边缘）
+            if self.config.use_circle_mask:
+                equipment_mask1 = self.processor.create_equipment_mask(img1_resized, self.config.circle_radius, erode_iterations=2)
+                equipment_mask2 = self.processor.create_equipment_mask(img2_resized, self.config.circle_radius, erode_iterations=2)
+            else:
+                # 不使用圆形掩码，但仍然去除紫色和白色
+                equipment_mask1 = self.processor.create_equipment_mask(img1_resized, radius=58, erode_iterations=2)
+                equipment_mask2 = self.processor.create_equipment_mask(img2_resized, radius=58, erode_iterations=2)
             
-            # 生成唯一文件名
-            import time
-            timestamp = str(int(time.time()))[-6:]  # 取时间戳后6位
+            combined_mask = cv2.bitwise_and(equipment_mask1, equipment_mask2)
             
-            cv2.imwrite(os.path.join(equipment_mask_dir, f"equipment_mask1_{timestamp}.png"), equipment_mask1)
-            cv2.imwrite(os.path.join(equipment_mask_dir, f"equipment_mask2_{timestamp}.png"), equipment_mask2)
-            cv2.imwrite(os.path.join(equipment_mask_dir, f"combined_equipment_mask_{timestamp}.png"), combined_equipment_mask)
+            equipment_pixels = np.sum(combined_mask == 255)
+            total_pixels = target_size[0] * target_size[1]
+            equipment_ratio = equipment_pixels / total_pixels
             
-            # 保存掩码后的图像用于验证
-            img1_masked = cv2.bitwise_and(img1_resized, img1_resized, mask=equipment_mask1)
-            img2_masked = cv2.bitwise_and(img2_resized, img2_resized, mask=equipment_mask2)
-            cv2.imwrite(os.path.join(equipment_mask_dir, f"img1_equipment_only_{timestamp}.png"), img1_masked)
-            cv2.imwrite(os.path.join(equipment_mask_dir, f"img2_equipment_only_{timestamp}.png"), img2_masked)
+            # 调试信息
+            debug_info = {
+                'equipment_pixels': int(equipment_pixels),
+                'total_pixels': int(total_pixels),
+                'equipment_ratio': float(equipment_ratio)
+            }
             
-            log_message("DEBUG", f"装备本体掩码已保存到 {equipment_mask_dir}/ 目录用于验证")
-        
-        # 检查是否有足够的装备区域进行比较
-        equipment_pixels = np.sum(combined_equipment_mask == 255)
-        total_pixels = target_size[0] * target_size[1]
-        equipment_ratio = equipment_pixels / total_pixels
-        
-        if equipment_ratio < 0.05:  # 少于5%的装备区域
-            log_message("WARNING", "装备区域过小，颜色相似度可能不准确")
-        
-        # 转换为LAB色彩空间（更接近人类视觉感知）
-        lab1 = cv2.cvtColor(img1_resized, cv2.COLOR_BGR2LAB)
-        lab2 = cv2.cvtColor(img2_resized, cv2.COLOR_BGR2LAB)
-        
-        # 获取装备区域的像素坐标
-        equipment_coords = np.where(combined_equipment_mask == 255)
-        
-        if len(equipment_coords[0]) == 0:
-            log_message("WARNING", "没有找到装备像素，返回相似度为0")
-            return 0
-        
-        # 改进：计算像素级欧氏距离平均，而不是整图平均
-        pixel_distances = []
-        for y, x in zip(equipment_coords[0], equipment_coords[1]):
-            pixel1 = lab1[y, x]
-            pixel2 = lab2[y, x]
-            pixel_distance = np.linalg.norm(pixel1 - pixel2)
-            pixel_distances.append(pixel_distance)
-        
-        # 计算平均像素距离
-        avg_pixel_distance = np.mean(pixel_distances)
-        
-        # 添加诊断信息
-        log_message("DEBUG", f"装备像素数量: {len(pixel_distances)}")
-        log_message("DEBUG", f"平均像素距离: {avg_pixel_distance:.2f}")
-        log_message("DEBUG", f"距离标准差: {np.std(pixel_distances):.2f}")
-        
-        # 转换为相似度（距离越小，相似度越高）
-        # 调整最大距离阈值为300，适应LAB空间的大距离
-        max_distance = 300.0  # 调整最大距离，适应LAB空间的实际距离范围
-        similarity = max(0, 1 - avg_pixel_distance / max_distance)
-        
-        # 记录详细的颜色差异信息（用于调试）
-        if avg_pixel_distance > 7.5:  # 调整阈值，记录更多差异信息
-            log_message("DEBUG", f"平均LAB颜色距离: {avg_pixel_distance:.2f}")
-            log_message("DEBUG", f"颜色相似度: {similarity:.3f}")
-        
-        return similarity
-    except Exception as e:
-        log_message("ERROR", f"颜色相似度计算失败: {e}")
-        return 0
-
-def create_equipment_only_mask(image, tolerance=23):
-    """
-    创建装备本体掩码，使用圆形掩码策略
-    在矩形中心画一个半径为55的圆作为范围控制，圆内紫色去除保留装备，圆外全部为黑色
+            if equipment_ratio < self.config.equipment_ratio_threshold:
+                logger.warning(f"装备区域过小: {equipment_ratio:.2%} (阈值: {self.config.equipment_ratio_threshold:.2%})")
+            
+            # 方法1：像素级LAB欧氏距离
+            lab1 = cv2.cvtColor(img1_resized, cv2.COLOR_BGR2LAB)
+            lab2 = cv2.cvtColor(img2_resized, cv2.COLOR_BGR2LAB)
+            
+            equipment_coords = np.where(combined_mask == 255)
+            if len(equipment_coords[0]) == 0:
+                logger.warning("没有找到装备像素")
+                return 0.0, debug_info
+            
+            pixels1 = lab1[equipment_coords[0], equipment_coords[1]]
+            pixels2 = lab2[equipment_coords[0], equipment_coords[1]]
+            distances = np.linalg.norm(pixels1 - pixels2, axis=1)
+            avg_distance = np.mean(distances)
+            std_distance = np.std(distances)
+            
+            pixel_similarity = max(0, 1 - avg_distance / self.config.max_color_distance)
+            
+            # 方法2：直方图相似度（对边缘锯齿不敏感）
+            hist_similarity = self.calculate_histogram_similarity(img1_resized, img2_resized, combined_mask)
+            
+            # 动态权重：像素少时更依赖直方图，像素多时更依赖像素级匹配
+            # equipment_ratio范围：0.02-0.5，映射到权重：0.3-0.7
+            pixel_weight = min(0.7, max(0.3, 0.3 + equipment_ratio * 0.8))
+            hist_weight = 1.0 - pixel_weight
+            
+            # 综合两种方法：动态权重
+            final_similarity = pixel_similarity * pixel_weight + hist_similarity * hist_weight
+            
+            debug_info.update({
+                'avg_distance': float(avg_distance),
+                'std_distance': float(std_distance),
+                'min_distance': float(np.min(distances)),
+                'max_distance': float(np.max(distances)),
+                'pixel_similarity': float(pixel_similarity),
+                'hist_similarity': float(hist_similarity),
+                'pixel_weight': float(pixel_weight),
+                'hist_weight': float(hist_weight),
+                'final_similarity': float(final_similarity)
+            })
+            
+            return final_similarity, debug_info
+        except Exception as e:
+            logger.error(f"颜色相似度计算失败: {e}")
+            return 0.0, {}
     
-    掩码逻辑：
-    - 255值: 圆形区域内非紫色的装备本体（白色）
-    - 0值: 圆形区域外（黑色）和圆形区域内紫色部分（黑色）
+    def calculate_composite_score(self, template_score: float, color_score: float) -> float:
+        """计算综合得分（直接相加）"""
+        color_score_100 = color_score * 100
+        # 直接相加：模板分数(0-100) + 颜色分数(0-100) = 总分(0-200)
+        return template_score + color_score_100
     
-    Args:
-        image: 输入图像（BGR格式）
-        tolerance: 颜色容差范围
-        
-    Returns:
-        装备本体掩码（255为圆形区域内非紫色装备，0为其他区域）
-    """
-    try:
-        # 确保图像尺寸为116x116
-        height, width = image.shape[:2]
-        if height != 116 or width != 116:
-            # 调整图像大小为116x116
-            image = cv2.resize(image, (116, 116))
-            height, width = 116, 116
-        
-        # 修复：调整圆形半径，确保不超出图像边界
-        center_x, center_y = width // 2, height // 2
-        max_radius = min(center_x, center_y)  # 确保圆不超出边界
-        radius = min(55, max_radius)  # 使用55或更小的半径，确保安全边界
-        
-        # 添加诊断日志
-        log_message("DEBUG", f"圆形掩码参数: 图像尺寸={width}x{height}, 中心=({center_x},{center_y}), 半径={radius}")
-        log_message("DEBUG", f"圆的边界: x=[{center_x-radius},{center_x+radius}], y=[{center_y-radius},{center_y+radius}]")
-        
-        # 创建空白掩码
-        circle_mask = np.zeros((height, width), dtype=np.uint8)
-        
-        # 在掩码上画圆（255表示圆内区域）
-        cv2.circle(circle_mask, (center_x, center_y), radius, 255, -1)
-        
-        # 创建深紫色掩码（39212e范围，调整容差）
-        lower_bound = np.array([
-            max(0, 46 - tolerance),
-            max(0, 33 - tolerance),
-            max(0, 46 - tolerance)
-        ])
-        upper_bound = np.array([
-            min(255, 46 + tolerance),
-            min(255, 33 + tolerance),
-            min(255, 46 + tolerance)
-        ])
-        mask_deep_purple = cv2.inRange(image, lower_bound, upper_bound)
-        
-        # 创建浅紫色掩码（20904f71范围，调整容差）
-        light_purple_lower = np.array([242, 241, 242])  # 调整浅紫色范围，减少容差
-        light_purple_upper = np.array([246, 249, 246])
-        mask_light_purple = cv2.inRange(image, light_purple_lower, light_purple_upper)
-        
-        # 创建第三种颜色掩码（57,33,45范围，调整容差范围）
-        third_color_lower = np.array([45, 30, 35])  # 调整第三种紫色范围，减少跨度
-        third_color_upper = np.array([65, 40, 50])
-        mask_third_color = cv2.inRange(image, third_color_lower, third_color_upper)
-        
-        # 添加诊断日志
-        purple_pixel_count = np.sum(mask_deep_purple > 0) + np.sum(mask_light_purple > 0) + np.sum(mask_third_color > 0)
-        total_pixels = image.shape[0] * image.shape[1]
-        purple_ratio = purple_pixel_count / total_pixels
-        log_message("DEBUG", f"装备掩码紫色像素统计: {purple_pixel_count}/{total_pixels} ({purple_ratio:.2%})")
-        
-        # 合并所有紫色区域掩码
-        purple_mask = cv2.bitwise_or(cv2.bitwise_or(mask_deep_purple, mask_light_purple), mask_third_color)
-        
-        # 应用圆形掩码：只保留圆形区域内的紫色
-        purple_in_circle = cv2.bitwise_and(purple_mask, circle_mask)
-        
-        # 创建最终装备掩码：
-        # 1. 圆形区域内非紫色部分为255（白色）
-        # 2. 圆形区域外全部为0（黑色）
-        # 3. 圆形区域内紫色部分为0（黑色）
-        
-        # 先创建圆形区域掩码（255表示圆内，0表示圆外）
-        equipment_mask = circle_mask.copy()
-        
-        # 从圆形区域中去除紫色部分（将紫色部分设为0）
-        equipment_mask = cv2.bitwise_and(equipment_mask, cv2.bitwise_not(purple_in_circle))
-        
-        # 形态学处理，去除噪点
-        kernel = np.ones((3, 3), np.uint8)
-        equipment_mask = cv2.morphologyEx(equipment_mask, cv2.MORPH_OPEN, kernel)
-        equipment_mask = cv2.morphologyEx(equipment_mask, cv2.MORPH_CLOSE, kernel)
-        
-        # 轻微羽化处理
-        equipment_mask = cv2.GaussianBlur(equipment_mask.astype(np.float32), (3, 3), 0.5)
-        
-        # 二值化，确保只有0和255
-        _, equipment_mask = cv2.threshold(equipment_mask, 200, 255, cv2.THRESH_BINARY)
-        
-        return equipment_mask.astype(np.uint8)
-    except Exception as e:
-        log_message("ERROR", f"装备本体掩码创建失败: {e}")
-        return np.zeros((image.shape[0], image.shape[1]), dtype=np.uint8)
-
-def calculate_composite_score(template_score, color_score, template_weight=0.65, color_weight=0.35):
-    """
-    计算综合得分（改进版本）
-    只使用模板匹配和颜色欧氏距离
-    调整权重，增加模板匹配的重要性，减少颜色相似度的影响
-    
-    Args:
-        template_score: 模板匹配得分（0-100）
-        color_score: 颜色相似度得分（0-1）
-        template_weight: 模板匹配权重（默认0.65，增加模板匹配权重）
-        color_weight: 颜色相似度权重（默认0.35，减少颜色权重）
-        
-    Returns:
-        综合得分（0-100）
-    """
-    # 将颜色相似度转换为0-100范围
-    color_score_100 = color_score * 100
-    
-    # 计算加权平均
-    composite_score = template_score * template_weight + color_score_100 * color_weight
-    
-    # 添加诊断日志
-    log_message("DEBUG", f"综合得分计算: 模板={template_score:.2f}×{template_weight:.2f} + 颜色={color_score:.3f}×{color_weight:.2f} = {composite_score:.2f}")
-    
-    return composite_score
-
-def match_equipment_images(base_dir, compare_dir, output_dir):
-    """
-    执行装备图片匹配（两阶段匹配策略）
-    第一阶段：模板匹配筛选候选
-    第二阶段：颜色匹配区分高分候选
-    
-    Args:
-        base_dir: 基准图像目录
-        compare_dir: 对比图像目录
-        output_dir: 输出目录
-        
-    Returns:
-        匹配结果列表
-    """
-    log_message("INIT", "开始装备图片匹配（两阶段匹配策略）")
-    log_message("CONFIG", f"阶段1：TM_CCOEFF_NORMED模板匹配筛选候选")
-    log_message("CONFIG", f"阶段2：颜色欧氏距离区分高分候选（仅对多个高分候选使用）")
-    
-    # 检查目录是否存在
-    if not os.path.exists(base_dir):
-        log_message("ERROR", f"基准图像目录不存在: {base_dir}")
-        return []
-    
-    if not os.path.exists(compare_dir):
-        log_message("ERROR", f"对比图像目录不存在: {compare_dir}")
-        return []
-    
-    # 创建输出目录
-    os.makedirs(output_dir, exist_ok=True)
-    
-    # 创建掩码图像保存目录
-    masked_output_dir = os.path.join(output_dir, "masked_images")
-    os.makedirs(masked_output_dir, exist_ok=True)
-    
-    # 创建对比图像保存目录
-    comparison_output_dir = os.path.join(output_dir, "comparisons")
-    os.makedirs(comparison_output_dir, exist_ok=True)
-    
-    # 创建装备掩码保存目录
-    equipment_mask_dir = os.path.join(output_dir, "equipment_masks")
-    os.makedirs(equipment_mask_dir, exist_ok=True)
-    
-    # 获取基准图像列表
-    base_images = [f for f in os.listdir(base_dir)
-                  if f.lower().endswith(('.png', '.jpg', '.jpeg', '.webp'))]
-    
-    # 获取对比图像列表
-    compare_images = [f for f in os.listdir(compare_dir)
-                    if f.lower().endswith(('.png', '.jpg', '.jpeg', '.webp'))]
-    
-    if not base_images:
-        log_message("ERROR", "未找到基准图像")
-        return []
-    
-    if not compare_images:
-        log_message("ERROR", "未找到对比图像")
-        return []
-    
-    log_message("INIT", f"找到 {len(base_images)} 个基准图像")
-    log_message("INIT", f"找到 {len(compare_images)} 个对比图像")
-    log_message("INIT", f"掩码图像将保存到: {masked_output_dir}")
-    log_message("INIT", f"对比图像将保存到: {comparison_output_dir}")
-    log_message("INIT", f"装备掩码图像将保存到: {equipment_mask_dir}")
-    
-    # 存储所有匹配结果
-    all_results = []
-    
-    # 对每个对比图像进行匹配
-    for compare_img in compare_images:
-        log_message("MATCH", f"正在处理对比图像: {compare_img}")
-        
-        compare_path = os.path.join(compare_dir, compare_img)
-        compare_image = load_image(compare_path)
-        
-        if compare_image is None:
-            continue
-        
-        # 为对比图像创建掩码并保存
-        compare_mask = create_background_mask(compare_image)
-        compare_masked_image = apply_mask_to_image(compare_image, compare_mask)
-        
-        # 保存对比图像的掩码和掩码后图像
-        compare_mask_path = os.path.join(masked_output_dir, f"mask_{compare_img}")
-        compare_masked_path = os.path.join(masked_output_dir, f"masked_{compare_img}")
-        
-        cv2.imwrite(compare_mask_path, compare_mask)
-        cv2.imwrite(compare_masked_path, compare_masked_image)
-        
-        log_message("DEBUG", f"已保存对比图像掩码: {compare_mask_path}")
-        log_message("DEBUG", f"已保存对比图像掩码后图像: {compare_masked_path}")
-        
-        # 阶段1：对所有基准图像进行模板匹配
+    def match_single_image(self, compare_image: np.ndarray, compare_name: str, base_images: Dict[str, np.ndarray]) -> Optional[MatchResult]:
+        """匹配单张图像"""
         template_candidates = []
-        for base_img in base_images:
-            base_path = os.path.join(base_dir, base_img)
-            base_image = load_image(base_path)
-            
-            if base_image is None:
-                continue
-            
-            # 计算模板匹配相似度
-            template_score, method = template_matching(base_image, compare_image)
-            
-            # 记录模板匹配候选
-            candidate = {
-                'base_image': base_img,
-                'base_image_obj': base_image,
-                'template_score': template_score,
-                'template_method': method
-            }
-            template_candidates.append(candidate)
-            
-            log_message("DEBUG", f"模板匹配 {base_img}: {template_score:.2f}%")
+        for base_name, base_image in base_images.items():
+            template_score, method = self.template_matching_lab(base_image, compare_image)
+            template_candidates.append({'name': base_name, 'image': base_image, 'score': template_score, 'method': method})
         
-        # 按模板匹配得分排序
-        template_candidates.sort(key=lambda x: x['template_score'], reverse=True)
+        template_candidates.sort(key=lambda x: x['score'], reverse=True)
+        high_score_candidates = [c for c in template_candidates if c['score'] >= self.config.template_threshold]
         
-        # 确定是否需要颜色匹配
-        template_threshold = 70.0  # 模板匹配阈值
-        high_score_candidates = [c for c in template_candidates if c['template_score'] >= template_threshold]
-        
-        log_message("DEBUG", f"模板匹配阈值: {template_threshold}%, 高分候选数量: {len(high_score_candidates)}")
-        
-        # 阶段2：对高分候选进行颜色匹配
-        final_candidates = []
-        for candidate in high_score_candidates:
-            base_img = candidate['base_image']
-            base_image = candidate['base_image_obj']
-            
-            # 为基准图像创建掩码并保存
-            base_mask = create_background_mask(base_image)
-            base_masked_image = apply_mask_to_image(base_image, base_mask)
-            
-            # 保存基准图像的掩码和掩码后图像
-            base_mask_path = os.path.join(masked_output_dir, f"mask_{base_img}")
-            base_masked_path = os.path.join(masked_output_dir, f"masked_{base_img}")
-            
-            cv2.imwrite(base_mask_path, base_mask)
-            cv2.imwrite(base_masked_path, base_masked_image)
-            
-            log_message("DEBUG", f"已保存基准图像掩码: {base_mask_path}")
-            log_message("DEBUG", f"已保存基准图像掩码后图像: {base_masked_path}")
-            
-            # 计算颜色相似度（使用欧氏距离方法）
-            color_score = calculate_color_similarity_with_euclidean(base_image, compare_image, output_dir)
-            
-            # 计算综合得分
-            composite_score = calculate_composite_score(candidate['template_score'], color_score)
-            
-            # 记录最终候选
-            final_candidate = {
-                'base_image': base_img,
-                'base_image_obj': base_image,
-                'base_masked_image': base_masked_image,
-                'base_mask': base_mask,
-                'template_score': candidate['template_score'],
-                'template_method': candidate['template_method'],
-                'color_score': color_score,
-                'composite_score': composite_score
-            }
-            final_candidates.append(final_candidate)
-            
-            # 记录结果到总结果列表
-            result = {
-                'base_image': base_img,
-                'compare_image': compare_img,
-                'template_score': candidate['template_score'],
-                'template_method': candidate['template_method'],
-                'color_score': color_score,
-                'composite_score': composite_score
-            }
-            all_results.append(result)
-            
-            log_message("DEBUG", f"颜色匹配 {base_img}: 颜色相似度={color_score:.3f}, 综合得分={composite_score:.2f}%")
-        
-        # 如果没有高分候选，选择模板匹配最高的
-        if not final_candidates and template_candidates:
-            best_template = template_candidates[0]
-            log_message("DEBUG", f"无高分候选，选择模板匹配最高: {best_template['base_image']} ({best_template['template_score']:.2f}%)")
-            
-            # 为最佳模板匹配创建掩码和图像
-            base_image = best_template['base_image_obj']
-            base_mask = create_background_mask(base_image)
-            base_masked_image = apply_mask_to_image(base_image, base_mask)
-            
-            base_mask_path = os.path.join(masked_output_dir, f"mask_{best_template['base_image']}")
-            base_masked_path = os.path.join(masked_output_dir, f"masked_{best_template['base_image']}")
-            
-            cv2.imwrite(base_mask_path, base_mask)
-            cv2.imwrite(base_masked_path, base_masked_image)
-            
-            # 创建最终候选（无颜色匹配）
-            final_candidate = {
-                'base_image': best_template['base_image'],
-                'base_image_obj': base_image,
-                'base_masked_image': base_masked_image,
-                'base_mask': base_mask,
-                'template_score': best_template['template_score'],
-                'template_method': best_template['template_method'],
-                'color_score': 0.0,  # 无颜色匹配
-                'composite_score': best_template['template_score']  # 仅使用模板匹配得分
-            }
-            final_candidates.append(final_candidate)
-            
-            # 记录结果到总结果列表
-            result = {
-                'base_image': best_template['base_image'],
-                'compare_image': compare_img,
-                'template_score': best_template['template_score'],
-                'template_method': best_template['template_method'],
-                'color_score': 0.0,
-                'composite_score': best_template['template_score']
-            }
-            all_results.append(result)
-        
-        # 选择最佳匹配
         best_match = None
-        best_score = 0
-        best_base_masked = None
-        best_base_mask = None
+        best_score = 0.0
         
-        if final_candidates:
-            # 按综合得分排序，选择最佳匹配
-            final_candidates.sort(key=lambda x: x['composite_score'], reverse=True)
-            best_candidate = final_candidates[0]
-            
-            best_match = {
-                'base_image': best_candidate['base_image'],
-                'compare_image': compare_img,
-                'template_score': best_candidate['template_score'],
-                'template_method': best_candidate['template_method'],
-                'color_score': best_candidate['color_score'],
-                'composite_score': best_candidate['composite_score']
-            }
-            best_score = best_candidate['composite_score']
-            best_base_masked = best_candidate['base_masked_image']
-            best_base_mask = best_candidate['base_mask']
-            
-            log_message("DEBUG", f"选择最佳匹配: {best_candidate['base_image']} (综合得分: {best_candidate['composite_score']:.2f}%)")
-        
-        # 创建对比图像并保存
-        if best_match and best_base_masked is not None:
-            # 调整图像大小为相同尺寸以便比较
-            target_size = (200, 200)  # 增大尺寸以便更好地查看
-            
-            # 尝试使用equipment_masks目录下的掩码后装备图像
-            # 获取equipment_masks目录
-            equipment_mask_dir = os.path.join(output_dir, "equipment_masks")
-            
-            # 查找匹配的掩码后装备图像
-            base_masked_eq_img = None
-            compare_masked_eq_img = None
-            
-            try:
-                # 查找基准图像对应的掩码后装备图像
-                base_files = [f for f in os.listdir(equipment_mask_dir) 
-                             if f.startswith("img1_equipment_only_") and f.endswith(".png")]
-                if base_files:
-                    # 使用最新的掩码后装备图像
-                    base_files.sort(reverse=True)
-                    base_eq_path = os.path.join(equipment_mask_dir, base_files[0])
-                    base_masked_eq_img = load_image(base_eq_path)
-                    log_message("DEBUG", f"使用基准掩码后装备图像: {base_eq_path}")
+        if high_score_candidates:
+            for candidate in high_score_candidates:
+                # 计算颜色相似度
+                color_score, debug_info = self.calculate_color_similarity_lab(
+                    candidate['image'], compare_image
+                )
+                composite_score = self.calculate_composite_score(candidate['score'], color_score)
                 
-                # 查找对比图像对应的掩码后装备图像
-                compare_files = [f for f in os.listdir(equipment_mask_dir) 
-                                if f.startswith("img2_equipment_only_") and f.endswith(".png")]
-                if compare_files:
-                    # 使用最新的掩码后装备图像
-                    compare_files.sort(reverse=True)
-                    compare_eq_path = os.path.join(equipment_mask_dir, compare_files[0])
-                    compare_masked_eq_img = load_image(compare_eq_path)
-                    log_message("DEBUG", f"使用对比掩码后装备图像: {compare_eq_path}")
-            except Exception as e:
-                log_message("ERROR", f"加载掩码后装备图像失败: {e}")
-            
-            # 如果找不到掩码后装备图像，使用原始掩码图像作为备选
-            if base_masked_eq_img is None:
-                base_masked_eq_img = best_base_masked
-            if compare_masked_eq_img is None:
-                compare_masked_eq_img = compare_masked_image
-            
-            # 调整图像大小
-            base_resized = cv2.resize(base_masked_eq_img, target_size)
-            compare_resized = cv2.resize(compare_masked_eq_img, target_size)
-            
-            # 创建对比图像
-            comparison_image = np.zeros((target_size[0], target_size[1] * 2, 3), dtype=np.uint8)
-            comparison_image[:, :target_size[1]] = base_resized
-            comparison_image[:, target_size[1]:] = compare_resized
-            
-            # 在图像上添加文本信息
-            font = cv2.FONT_HERSHEY_SIMPLEX
-            font_scale = 0.5
-            color = (255, 255, 255)
-            thickness = 1
-            
-            # 添加基准图像信息
-            base_text = f"{best_match['base_image']}"
-            cv2.putText(comparison_image, base_text, (10, 20), font, font_scale, color, thickness)
-            cv2.putText(comparison_image, f"Score: {best_match['composite_score']:.2f}%", (10, 40), font, font_scale, color, thickness)
-            
-            # 添加对比图像信息
-            compare_text = f"{compare_img}"
-            cv2.putText(comparison_image, compare_text, (target_size[1] + 10, 20), font, font_scale, color, thickness)
-            cv2.putText(comparison_image, f"Template: {best_match['template_score']:.2f}%", (target_size[1] + 10, 40), font, font_scale, color, thickness)
-            cv2.putText(comparison_image, f"Color: {best_match['color_score']:.3f}", (target_size[1] + 10, 60), font, font_scale, color, thickness)
-            
-            # 保存对比图像
-            comparison_filename = f"comparison_{compare_img}_vs_{best_match['base_image']}.jpg"
-            comparison_path = os.path.join(comparison_output_dir, comparison_filename)
-            cv2.imwrite(comparison_path, comparison_image)
-            
-            log_message("DEBUG", f"已保存对比图像: {comparison_path}")
+                if composite_score > best_score:
+                    best_score = composite_score
+                    best_match = MatchResult(
+                        base_image=candidate['name'], compare_image=compare_name,
+                        template_score=candidate['score'], template_method=candidate['method'],
+                        color_score=color_score, composite_score=composite_score,
+                        debug_info=debug_info
+                    )
+        elif template_candidates:
+            best = template_candidates[0]
+            best_match = MatchResult(
+                base_image=best['name'], compare_image=compare_name,
+                template_score=best['score'], template_method=best['method'],
+                color_score=0.0, composite_score=best['score']
+            )
         
-        # 输出最佳匹配结果到终端
-        if best_match:
-            if best_match['composite_score'] > 90:
-                log_message("RESULT",
-                           f"按照阈值匹配90%：最终筛选出{best_match['base_image']} ← {best_match['compare_image']} "
-                           f"(综合得分: {best_match['composite_score']:.2f}%, "
-                           f"模板匹配: {best_match['template_score']:.2f}%, "
-                           f"颜色相似度: {best_match['color_score']:.3f})")
-            else:
-                log_message("RESULT",
-                           f"最佳匹配: {best_match['base_image']} → {best_match['compare_image']} "
-                           f"(综合得分: {best_match['composite_score']:.2f}%, "
-                           f"模板匹配: {best_match['template_score']:.2f}%, "
-                           f"颜色相似度: {best_match['color_score']:.3f})")
+        return best_match
     
-    # 保存详细结果到JSON文件
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    result_file = os.path.join(output_dir, f"matching_results_{timestamp}.json")
-    
-    with open(result_file, 'w', encoding='utf-8') as f:
-        json.dump(all_results, f, indent=2, ensure_ascii=False)
-    
-    # 生成汇总报告
-    summary_file = os.path.join(output_dir, f"matching_summary_{timestamp}.txt")
-    with open(summary_file, 'w', encoding='utf-8') as f:
-        f.write("装备图片匹配结果汇总\n")
-        f.write("=" * 50 + "\n")
-        f.write(f"测试时间: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
-        f.write(f"基准图像数量: {len(base_images)}\n")
-        f.write(f"对比图像数量: {len(compare_images)}\n")
-        f.write(f"总匹配次数: {len(all_results)}\n")
-        f.write(f"匹配方法: 两阶段匹配策略\n")
-        f.write(f"阶段1: TM_CCOEFF_NORMED模板匹配筛选候选\n")
-        f.write(f"阶段2: 颜色欧氏距离区分高分候选\n")
-        f.write(f"模板匹配阈值: 70.0%\n")
-        f.write(f"模板匹配掩码策略: 已禁用\n")
-        f.write(f"颜色匹配掩码策略: 圆形掩码策略（半径55，圆内紫色去除，圆外黑色）\n")
-        f.write(f"装备掩码图像: 保存到 equipment_masks/ 目录\n")
-        f.write(f"圆形掩码: 图像中心半径55的圆形区域，圆内紫色去除，圆外黑色\n")
-        f.write(f"图像尺寸: 保持116*116像素\n")
-        f.write(f"颜色相似度: 仅对高分候选启用（LAB色彩空间）\n")
-        f.write(f"模板匹配权重: 65% (0.65)\n")
-        f.write(f"颜色相似度权重: 35% (0.35)\n")
-        f.write(f"颜色空间: LAB色彩空间\n")
-        f.write(f"最大颜色距离: 300.0\n")
-        f.write("\n")
+    def create_comparison_image(self, base_image: np.ndarray, compare_image: np.ndarray, match_result: MatchResult) -> np.ndarray:
+        """创建对比图像（显示完整文件名，使用去除紫色背景后的图像）"""
+        # 先调整到116x116创建掩码
+        mask_size = (116, 116)
+        base_116 = cv2.resize(base_image, mask_size)
+        compare_116 = cv2.resize(compare_image, mask_size)
         
-        # 按对比图像分组显示最佳匹配
-        f.write("各对比图像的最佳匹配结果:\n")
-        f.write("-" * 50 + "\n")
+        # 创建掩码（去除紫色背景）
+        base_mask_116 = self.processor.create_equipment_mask(base_116, self.config.circle_radius, erode_iterations=2)
+        compare_mask_116 = self.processor.create_equipment_mask(compare_116, self.config.circle_radius, erode_iterations=2)
         
-        for compare_img in compare_images:
-            compare_results = [r for r in all_results if r['compare_image'] == compare_img]
-            if compare_results:
-                best = max(compare_results, key=lambda x: x['composite_score'])
-                f.write(f"{compare_img}:\n")
-                if best['composite_score'] > 90:
-                    f.write(f"  按照阈值匹配90%：最终筛选出{best['base_image']}\n")
-                else:
-                    f.write(f"  最佳匹配: {best['base_image']}\n")
-                f.write(f"  综合得分: {best['composite_score']:.2f}%\n")
-                f.write(f"  模板匹配: {best['template_score']:.2f}% ({best['template_method']})\n")
-                f.write(f"  颜色相似度: {best['color_score']:.3f}\n\n")
-    
-    log_message("RESULT", f"匹配完成，结果已保存到: {output_dir}")
-    log_message("RESULT", f"详细结果: {result_file}")
-    log_message("RESULT", f"汇总报告: {summary_file}")
-    
-    return all_results
+        # 应用掩码到116x116图像
+        base_masked_116 = cv2.bitwise_and(base_116, base_116, mask=base_mask_116)
+        compare_masked_116 = cv2.bitwise_and(compare_116, compare_116, mask=compare_mask_116)
+        
+        # 将掩码外的区域设为白色
+        base_masked_116[base_mask_116 == 0] = [255, 255, 255]
+        compare_masked_116[compare_mask_116 == 0] = [255, 255, 255]
+        
+        # 再放大到250x250用于显示
+        target_size = (250, 250)
+        base_masked = cv2.resize(base_masked_116, target_size, interpolation=cv2.INTER_LINEAR)
+        compare_masked = cv2.resize(compare_masked_116, target_size, interpolation=cv2.INTER_LINEAR)
+        
+        # 创建更大的画布以容纳文字
+        canvas_height = target_size[0] + 80
+        comparison = np.zeros((canvas_height, target_size[1] * 2, 3), dtype=np.uint8)
+        comparison[:] = [255, 255, 255]  # 白色背景
+        comparison[80:80+target_size[0], :target_size[1]] = base_masked
+        comparison[80:80+target_size[0], target_size[1]:] = compare_masked
+        
+        font = cv2.FONT_HERSHEY_SIMPLEX
+        font_scale = 0.4
+        thickness = 1
+        color = (255, 255, 255)
+        
+        # 左侧（基准图像）
+        y_offset = 15
+        cv2.putText(comparison, "Base:", (10, y_offset), font, font_scale, color, thickness)
+        cv2.putText(comparison, match_result.base_image[:30], (10, y_offset + 15), font, font_scale, color, thickness)
+        if len(match_result.base_image) > 30:
+            cv2.putText(comparison, match_result.base_image[30:], (10, y_offset + 30), font, font_scale, color, thickness)
+        cv2.putText(comparison, f"Composite: {match_result.composite_score:.1f}%", (10, y_offset + 50), font, font_scale, (0, 255, 0), thickness)
+        
+        # 右侧（对比图像）
+        cv2.putText(comparison, "Compare:", (target_size[1] + 10, y_offset), font, font_scale, color, thickness)
+        cv2.putText(comparison, match_result.compare_image[:30], (target_size[1] + 10, y_offset + 15), font, font_scale, color, thickness)
+        if len(match_result.compare_image) > 30:
+            cv2.putText(comparison, match_result.compare_image[30:], (target_size[1] + 10, y_offset + 30), font, font_scale, color, thickness)
+        cv2.putText(comparison, f"Template: {match_result.template_score:.1f}%", (target_size[1] + 10, y_offset + 50), font, font_scale, (0, 255, 255), thickness)
+        cv2.putText(comparison, f"Color: {match_result.color_score:.3f}", (target_size[1] + 10, y_offset + 65), font, font_scale, (255, 0, 255), thickness)
+        
+        return comparison
 
-def step3_match_equipment(auto_mode=True, base_dir=None, compare_dir=None, output_dir=None):
-    """步骤3：装备图片匹配"""
-    # 初始化日志系统
-    if LOGGER_AVAILABLE:
-        logger = get_unified_logger()
-        logger.start_step("step3_match", "装备匹配")
-    else:
-        log_message("INIT", "开始执行步骤3：装备图片匹配")
+
+# ==================== 文件管理器类 ====================
+class FileManager:
+    """文件管理器类"""
     
-    # 检查依赖
-    if not check_dependencies():
-        if LOGGER_AVAILABLE:
-            logger.end_step("step3_match", "失败")
-        return False
-    
-    # 设置默认路径
-    if base_dir is None:
-        base_dir = "images/base_equipment"  # 修正：使用正确的基准图像目录
-    if compare_dir is None:
-        compare_dir = "images/cropped_equipment_transparent"  # 使用透明背景的裁剪图像
-    if output_dir is None:
-        if LOGGER_AVAILABLE:
-            output_dir = logger.get_step_dir("step3_match") / "images"
-            txt_output_dir = logger.get_step_dir("step3_match") / "txt"
-            txt_output_dir.mkdir(parents=True, exist_ok=True)
-        else:
-            output_dir = "step_tests/step3_match/images"  # 更新：输出到step3_match目录下
-    
-    # 执行匹配
-    try:
-        match_results = match_equipment_images(base_dir, compare_dir, output_dir)
+    @staticmethod
+    def get_image_files(directory: Path) -> Generator[Path, None, None]:
+        """获取目录中的图像文件（生成器）"""
+        if not directory.exists():
+            logger.error(f"目录不存在: {directory}")
+            return
         
-        if match_results:
-            if LOGGER_AVAILABLE:
-                logger.log_success(f"图片匹配完成，共处理 {len(match_results)} 次匹配")
-                logger.log_info(f"基准图像: {len(set(r['base_image'] for r in match_results))} 个")
-                logger.log_info(f"对比图像: {len(set(r['compare_image'] for r in match_results))} 个")
-                logger.log_info(f"结果已保存到: {output_dir}")
-                
-                # 生成处理报告
-                stats = logger.get_step_stats("step3_match")
-                additional_info = {
-                    "files_processed": [r['compare_image'] for r in match_results],
-                    "match_results": match_results,
-                    "base_images": list(set(r['base_image'] for r in match_results))
-                }
-                
-                report_generator.generate_step_report("step3_match", stats, additional_info)
-                logger.end_step("step3_match", "完成")
-                
-                logger.log_info(f"Total images: {len(set(r['compare_image'] for r in match_results))}, Processed: {len(match_results)}")
-            else:
-                log_message("RESULT", f"图片匹配完成，共处理 {len(match_results)} 次匹配")
-                log_message("RESULT", f"  - 基准图像: {len(set(r['base_image'] for r in match_results))} 个")
-                log_message("RESULT", f"  - 对比图像: {len(set(r['compare_image'] for r in match_results))} 个")
-                log_message("RESULT", f"  - 结果已保存到: {output_dir}")
-            return True
-        else:
-            if LOGGER_AVAILABLE:
-                logger.log_warning("图片匹配未产生结果")
-                logger.end_step("step3_match", "无结果")
-            else:
-                log_message("WARNING", "图片匹配未产生结果")
-            return False
+        image_extensions = {'.png', '.jpg', '.jpeg', '.webp'}
+        for file_path in directory.iterdir():
+            if file_path.is_file() and file_path.suffix.lower() in image_extensions:
+                yield file_path
+    
+    @staticmethod
+    def load_images_batch(directory: Path) -> Dict[str, np.ndarray]:
+        """批量加载图像"""
+        images = {}
+        processor = ImageProcessor()
+        for file_path in FileManager.get_image_files(directory):
+            image = processor.load_image(file_path)
+            if image is not None:
+                images[file_path.name] = image
+        return images
+    
+    @staticmethod
+    def ensure_directory(directory: Path) -> None:
+        """确保目录存在"""
+        directory.mkdir(parents=True, exist_ok=True)
+    
+    @staticmethod
+    def save_results(results: List[MatchResult], output_dir: Path, compare_dir: Path, save_comparisons: bool = True,
+                    base_images: Dict[str, np.ndarray] = None, compare_images: Dict[str, np.ndarray] = None,
+                    matcher: EquipmentMatcher = None) -> Tuple[Path, Path, Path]:
+        """保存匹配结果（最小化文件输出 + CSV导出）"""
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        
+        # 清空并创建comparisons文件夹（在保存任何文件之前）
+        comparison_dir = output_dir / "comparisons"
+        if comparison_dir.exists():
+            import shutil
+            shutil.rmtree(comparison_dir)
+            logger.info(f"已清空对比图像文件夹: {comparison_dir}")
+        
+        FileManager.ensure_directory(comparison_dir)
+        
+        # 保存CSV文件（高置信度匹配结果）到compare_dir目录
+        csv_file = compare_dir / f"matching_results_{timestamp}.csv"
+        high_confidence_threshold = 90
+        
+        with open(csv_file, 'w', newline='', encoding='utf-8') as f:
+            writer = csv.writer(f)
+            writer.writerow(['原始名称', '匹配装备名称'])
             
-    except Exception as e:
-        if LOGGER_AVAILABLE:
-            logger.log_error(f"图片匹配过程中出错: {e}")
-            logger.end_step("step3_match", "失败")
-        else:
-            log_message("ERROR", f"图片匹配过程中出错: {e}")
-        import traceback
-        traceback.print_exc()
-        return False
+            # 获取所有原始文件名（按数字排序）
+            all_original_names = sorted(set(result.compare_image.rsplit('.', 1)[0] for result in results))
+            
+            # 创建匹配结果字典
+            match_dict = {}
+            for result in results:
+                original_name = result.compare_image.rsplit('.', 1)[0]
+                if result.composite_score > high_confidence_threshold:
+                    matched_name = result.base_image.rsplit('.', 1)[0]
+                    match_dict[original_name] = matched_name
+            
+            # 写入所有原始文件
+            for original_name in all_original_names:
+                matched_name = match_dict.get(original_name, '')
+                writer.writerow([original_name, matched_name])
+        
+        logger.info(f"已保存CSV匹配结果到: {csv_file}")
+        
+        # 保存JSON结果文件
+        json_file = comparison_dir / f"matching_results_{timestamp}.json"
+        with open(json_file, 'w', encoding='utf-8') as f:
+            json.dump([r.to_dict() for r in results], f, indent=2, ensure_ascii=False)
+        
+        # 保存汇总报告
+        summary_file = comparison_dir / f"matching_summary_{timestamp}.txt"
+        with open(summary_file, 'w', encoding='utf-8') as f:
+            f.write("装备图片匹配结果汇总\n")
+            f.write("=" * 50 + "\n")
+            f.write(f"测试时间: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
+            f.write(f"匹配方法: LAB色彩空间两阶段匹配\n")
+            f.write(f"总匹配次数: {len(results)}\n")
+            f.write(f"基准图像数量: {len(set(r.base_image for r in results))}\n")
+            f.write(f"对比图像数量: {len(set(r.compare_image for r in results))}\n\n")
+            
+            compare_groups = {}
+            for result in results:
+                if result.compare_image not in compare_groups:
+                    compare_groups[result.compare_image] = []
+                compare_groups[result.compare_image].append(result)
+            
+            f.write("各对比图像的最佳匹配结果:\n")
+            f.write("-" * 50 + "\n")
+            
+            for compare_img, group_results in compare_groups.items():
+                best = max(group_results, key=lambda x: x.composite_score)
+                f.write(f"{compare_img}:\n")
+                if best.composite_score > 90:
+                    f.write(f"  ✓ 高置信度匹配: {best.base_image}\n")
+                else:
+                    f.write(f"  最佳匹配: {best.base_image}\n")
+                f.write(f"  综合得分: {best.composite_score:.2f}%\n")
+                f.write(f"  模板匹配: {best.template_score:.2f}% ({best.template_method})\n")
+                f.write(f"  颜色相似度: {best.color_score:.3f}\n")
+                
+                # 添加调试信息
+                if best.debug_info:
+                    debug = best.debug_info
+                    f.write(f"  【调试信息】\n")
+                    f.write(f"    装备像素: {debug.get('equipment_pixels', 0)}/{debug.get('total_pixels', 0)} ")
+                    f.write(f"({debug.get('equipment_ratio', 0):.2%})\n")
+                    if 'avg_distance' in debug:
+                        f.write(f"    平均颜色距离: {debug.get('avg_distance', 0):.2f}\n")
+                        f.write(f"    距离标准差: {debug.get('std_distance', 0):.2f}\n")
+                        f.write(f"    像素相似度: {debug.get('pixel_similarity', 0):.3f} (权重: {debug.get('pixel_weight', 0):.2f})\n")
+                        f.write(f"    直方图相似度: {debug.get('hist_similarity', 0):.3f} (权重: {debug.get('hist_weight', 0):.2f})\n")
+                        f.write(f"    最终相似度: {debug.get('final_similarity', 0):.3f}\n")
+                f.write("\n")
+        
+        # 保存对比图像
+        if save_comparisons and base_images and compare_images and matcher:
+            
+            saved_count = 0
+            for result in results:
+                if result.base_image in base_images and result.compare_image in compare_images:
+                    comparison_img = matcher.create_comparison_image(
+                        base_images[result.base_image], compare_images[result.compare_image], result
+                    )
+                    # 生成文件名：原文件名_匹配装备名.png
+                    # 例如：10_circle.png → 10_circle_t5instrument.png
+                    compare_name = result.compare_image.rsplit('.', 1)[0]  # 去除扩展名
+                    base_name = result.base_image.rsplit('.', 1)[0]  # 去除扩展名
+                    comparison_file = comparison_dir / f"{compare_name}_{base_name}.png"
+                    cv2.imwrite(str(comparison_file), comparison_img)
+                    saved_count += 1
+            
+            logger.info(f"已保存 {saved_count} 张对比图像到: {comparison_dir}")
+        
+        return json_file, summary_file, csv_file
+
+
+# ==================== 主执行类 ====================
+class EquipmentMatchingPipeline:
+    """装备匹配流程类"""
+    
+    def __init__(self, config: MatchConfig = None):
+        self.config = config or MatchConfig()
+        self.matcher = EquipmentMatcher(self.config)
+        self.file_manager = FileManager()
+    
+    def _rename_high_confidence_files(self, results: List[MatchResult], compare_dir: Path) -> None:
+        """重命名高置信度匹配的原始文件"""
+        try:
+            renamed_count = 0
+            high_confidence_threshold = 90  # 高置信度阈值
+            
+            logger.info("\n开始重命名高置信度匹配的文件...")
+            
+            for result in results:
+                if result.composite_score > high_confidence_threshold:
+                    # 原始文件路径
+                    original_file = compare_dir / result.compare_image
+                    
+                    if original_file.exists():
+                        # 生成新文件名：原文件名_匹配装备名.png
+                        compare_name = result.compare_image.rsplit('.', 1)[0]  # 去除扩展名
+                        base_name = result.base_image.rsplit('.', 1)[0]  # 去除扩展名
+                        new_filename = f"{compare_name}_{base_name}.png"
+                        new_file = compare_dir / new_filename
+                        
+                        # 重命名文件
+                        original_file.rename(new_file)
+                        renamed_count += 1
+                        logger.info(f"  ✓ {result.compare_image} → {new_filename}")
+            
+            if renamed_count > 0:
+                logger.info(f"已重命名 {renamed_count} 个高置信度匹配的文件")
+            else:
+                logger.info("没有高置信度匹配的文件需要重命名")
+                
+        except Exception as e:
+            logger.error(f"重命名文件时出错: {e}")
+    
+    def run(self, base_dir: Path, compare_dir: Path, output_dir: Path) -> bool:
+        """执行匹配流程"""
+        try:
+            logger.info("=" * 60)
+            logger.info("开始装备图片匹配（LAB色彩空间两阶段策略）")
+            logger.info("=" * 60)
+            
+            if not base_dir.exists():
+                logger.error(f"基准图像目录不存在: {base_dir}")
+                return False
+            
+            if not compare_dir.exists():
+                logger.error(f"对比图像目录不存在: {compare_dir}")
+                return False
+            
+            self.file_manager.ensure_directory(output_dir)
+            
+            logger.info(f"加载基准图像: {base_dir}")
+            base_images = self.file_manager.load_images_batch(base_dir)
+            
+            if not base_images:
+                logger.error("未找到基准图像")
+                return False
+            
+            logger.info(f"✓ 已加载 {len(base_images)} 个基准图像")
+            
+            logger.info(f"加载对比图像: {compare_dir}")
+            compare_images = self.file_manager.load_images_batch(compare_dir)
+            
+            if not compare_images:
+                logger.error("未找到对比图像")
+                return False
+            
+            logger.info(f"✓ 已加载 {len(compare_images)} 个对比图像")
+            logger.info("开始匹配处理...")
+            
+            all_results = []
+            failed_images = []
+            total_files = len(compare_images)
+            
+            for idx, (compare_name, compare_image) in enumerate(compare_images.items(), 1):
+                try:
+                    result = self.matcher.match_single_image(compare_image, compare_name, base_images)
+                    
+                    if result:
+                        all_results.append(result)
+                        status = "✓ 高置信度" if result.composite_score > 90 else "○ 最佳匹配"
+                        logger.info(
+                            f"[{idx}/{total_files}] {status}: {result.compare_image} → "
+                            f"{result.base_image} (得分: {result.composite_score:.1f}%)"
+                        )
+                    else:
+                        failed_images.append((compare_name, "无匹配结果"))
+                        
+                except Exception as e:
+                    failed_images.append((compare_name, str(e)))
+                    logger.error(f"处理失败 {compare_name}: {e}")
+            
+            if all_results:
+                json_file, summary_file, csv_file = self.file_manager.save_results(
+                    all_results, output_dir, compare_dir, save_comparisons=self.config.save_comparison_images,
+                    base_images=base_images, compare_images=compare_images, matcher=self.matcher
+                )
+                
+                logger.info("=" * 60)
+                logger.info("匹配完成")
+                logger.info(f"✓ 成功匹配: {len(all_results)} 个")
+                if failed_images:
+                    logger.warning(f"✗ 失败: {len(failed_images)} 个")
+                    for name, reason in failed_images[:5]:
+                        logger.warning(f"  - {name}: {reason}")
+                    if len(failed_images) > 5:
+                        logger.warning(f"  ... 还有 {len(failed_images) - 5} 个失败")
+                logger.info(f"CSV结果: {csv_file}")
+                logger.info(f"详细结果: {json_file}")
+                logger.info(f"汇总报告: {summary_file}")
+                logger.info("=" * 60)
+                
+                # 自动重命名高置信度匹配的原始文件
+                self._rename_high_confidence_files(all_results, compare_dir)
+                
+                return True
+            else:
+                logger.error("未产生任何匹配结果")
+                return False
+                
+        except Exception as e:
+            logger.error(f"匹配流程出错: {e}", exc_info=True)
+            return False
+
+
+# ==================== 主函数 ====================
+def step3_match_equipment(auto_mode: bool = True, base_dir: Optional[str] = None,
+                         compare_dir: Optional[str] = None, output_dir: Optional[str] = None,
+                         save_comparisons: bool = True, use_circle_mask: bool = True) -> bool:
+    """步骤3：装备图片匹配主函数"""
+    base_path = Path(base_dir) if base_dir else Path("images/base_equipment")
+    compare_path = Path(compare_dir) if compare_dir else Path(r"images\equipment_transparent")
+    output_path = Path(output_dir) if output_dir else Path("images")
+    
+    config = MatchConfig(
+        save_comparison_images=save_comparisons,
+        use_circle_mask=use_circle_mask
+    )
+    pipeline = EquipmentMatchingPipeline(config)
+    return pipeline.run(base_path, compare_path, output_path)
+
 
 def main():
     """主函数"""
-    log_message("INIT", "步骤3：装备图片匹配功能测试模块")
-    
     try:
         import argparse
         
-        # 解析命令行参数
-        parser = argparse.ArgumentParser(description='步骤3：装备图片匹配功能测试')
-        parser.add_argument('--base-dir', type=str, default=None,
-                           help='基准图像目录路径')
-        parser.add_argument('--compare-dir', type=str, default=None,
-                           help='对比图像目录路径')
-        parser.add_argument('--output-dir', type=str, default=None,
-                           help='输出目录路径')
+        parser = argparse.ArgumentParser(description='步骤3：装备图片匹配功能（LAB色彩空间优化版）')
+        parser.add_argument('--base-dir', type=str, default=None, help='基准图像目录路径')
+        parser.add_argument('--compare-dir', type=str, default=None, help='对比图像目录路径')
+        parser.add_argument('--output-dir', type=str, default=None, help='输出目录路径')
+        parser.add_argument('--no-comparisons', action='store_true', help='不保存对比图像')
+        parser.add_argument('--no-circle-mask', action='store_true', help='禁用圆形掩码（使用全图）')
         
         args = parser.parse_args()
         
-        # 自动执行步骤3功能
         success = step3_match_equipment(
-            auto_mode=True,
-            base_dir=args.base_dir,
-            compare_dir=args.compare_dir,
-            output_dir=args.output_dir
+            auto_mode=True, base_dir=args.base_dir, compare_dir=args.compare_dir,
+            output_dir=args.output_dir, save_comparisons=not args.no_comparisons,
+            use_circle_mask=not args.no_circle_mask
         )
         
         if not success:
-            print("\n❌ 步骤3自动化执行失败！")
+            logger.error("步骤3执行失败")
+            sys.exit(1)
             
     except KeyboardInterrupt:
-        print("\n\n程序被用户中断")
+        logger.info("\n程序被用户中断")
+        sys.exit(0)
     except Exception as e:
-        print(f"发生错误: {e}")
+        logger.error(f"发生错误: {e}", exc_info=True)
+        sys.exit(1)
+
 
 if __name__ == "__main__":
     main()
