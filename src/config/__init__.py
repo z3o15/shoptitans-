@@ -5,7 +5,7 @@
 包含系统配置、OCR配置等管理功能
 """
 
-from .config_manager import ConfigManager, get_config_manager, create_recognizer_from_config
+from .config_manager import SimpleConfigManager as ConfigManager, get_config_manager, create_recognizer_from_config
 from .ocr_config_manager import OCRConfigManager, get_ocr_config_manager
 
 __all__ = [

@@ -40,7 +40,7 @@ class OCRConfigManager:
             default_ocr_config = self._get_default_ocr_config()
             config["ocr"] = default_ocr_config
             self.base_config_manager._save_config(config)
-            print("✓ 已添加默认OCR配置")
+            print("OK: 已添加默认OCR配置")
     
     def _get_default_ocr_config(self) -> Dict[str, Any]:
         """获取默认OCR配置
@@ -222,7 +222,7 @@ class OCRConfigManager:
         ocr_config.update(kwargs)
         self.base_config_manager.config["ocr"] = ocr_config
         self.base_config_manager._save_config(self.base_config_manager.config)
-        print("✓ OCR配置已更新")
+        print("OK: OCR配置已更新")
     
     def is_ocr_enabled(self) -> bool:
         """检查OCR功能是否启用
@@ -379,4 +379,4 @@ if __name__ == "__main__":
         for error in errors:
             print(f"  - {error}")
     else:
-        print("\n✓ OCR配置验证通过")
+        print("\nOK: OCR配置验证通过")

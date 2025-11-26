@@ -65,11 +65,6 @@ def check_data_files():
     if not os.path.exists(game_screenshots_dir):
         os.makedirs(game_screenshots_dir, exist_ok=True)
     
-    # 检查输出目录
-    output_dir = os.path.join(project_root, "output")
-    if not os.path.exists(output_dir):
-        os.makedirs(output_dir, exist_ok=True)
-    
     print("✓ 目录结构检查完成")
     return True
 
@@ -91,19 +86,15 @@ def clear_previous_results():
         except Exception as e:
             print(f"清理日志目录时出错: {e}")
     
-    # 清理输出目录（保留目录结构）
-    output_dir = os.path.join(project_root, "output")
-    if os.path.exists(output_dir):
+    # 清理旧的output目录（如果存在）
+    old_output_dir = os.path.join(project_root, "output")
+    if os.path.exists(old_output_dir):
         try:
-            # 只清理文件，保留目录结构
-            for root, dirs, files in os.walk(output_dir, topdown=False):
-                for file in files:
-                    try:
-                        os.remove(os.path.join(root, file))
-                    except Exception:
-                        pass
+            import shutil
+            shutil.rmtree(old_output_dir)
+            print(f"已删除旧的output目录: {old_output_dir}")
         except Exception as e:
-            print(f"清理输出目录时出错: {e}")
+            print(f"删除output目录时出错: {e}")
     
     print("✓ 清理完成")
 

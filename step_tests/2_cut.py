@@ -15,6 +15,7 @@
 
 from __future__ import annotations
 import argparse
+import os
 import shutil
 import sys
 import tempfile
@@ -82,14 +83,15 @@ def step2_cut_screenshots(auto_mode=True, auto_clear_old=True, save_original=Tru
     if not check_dependencies():
         return False
 
-    game_dir = Path('images/game_screenshots')
+    # 使用项目根目录构建绝对路径
+    game_dir = project_root / 'images' / 'game_screenshots'
     if not game_dir.exists():
-        print("❌ 缺少 images/game_screenshots")
+        print(f"ERROR: 缺少 {game_dir}")
         return False
 
     screenshots = sorted([p for p in game_dir.iterdir() if p.suffix.lower() in ('.png','.jpg','.jpeg','.webp')])
     if not screenshots:
-        print("❌ 未找到截图")
+        print("ERROR: 未找到截图")
         return False
 
     # 主输出：不再使用时间戳文件夹
@@ -97,11 +99,11 @@ def step2_cut_screenshots(auto_mode=True, auto_clear_old=True, save_original=Tru
     # marker_dir = Path('images/cropped_equipment_marker')
     # transparent_subdir = marker_dir / 'transparent'
 
-    # 修改后：
-    marker_dir = Path('images/equipment_crop')                 # 矩形图输出
+    # 修改后：使用项目根目录构建绝对路径
+    marker_dir = project_root / 'images' / 'equipment_crop'                 # 矩形图输出
     marker_dir.mkdir(parents=True, exist_ok=True)
 
-    transparent_subdir = Path('images/equipment_transparent')  # 圆形透明图输出
+    transparent_subdir = project_root / 'images' / 'equipment_transparent'  # 圆形透明图输出
     transparent_subdir.mkdir(parents=True, exist_ok=True)
 
     if auto_clear_old:
@@ -114,12 +116,10 @@ def step2_cut_screenshots(auto_mode=True, auto_clear_old=True, save_original=Tru
 
     try:
         from src.core.screenshot_cutter import ScreenshotCutter
-        from src.config.config_manager import get_config_manager
     except Exception as e:
-        print(f"❌ 导入 cutter 失败: {e}")
+        print(f"ERROR: 导入 cutter 失败: {e}")
         return False
 
-    config = get_config_manager().get_cutting_params()
     cutter = ScreenshotCutter()
 
     processed = 0
@@ -131,16 +131,27 @@ def step2_cut_screenshots(auto_mode=True, auto_clear_old=True, save_original=Tru
         # 直接输出到主目录（不再创建时间戳文件夹）
         output_folder = marker_dir
 
+        # 使用您指定的分割参数
+        cutting_params = {
+            'grid': (5, 2),  # 2行，每行5个
+            'item_width': 210,  # 装备宽度：210像素
+            'item_height': 160,  # 装备高度：160像素
+            'margin_left': 10,  # 左侧间隔：10像素
+            'margin_top': 275,  # 顶部：275像素
+            'h_spacing': 15,  # 横向间隔：15像素
+            'v_spacing': 20,  # 纵向间隔：20像素
+            'draw_circle': True,
+            'save_original': save_original,
+            'marker_output_folder': str(output_folder)
+        }
+
         ok = cutter.cut_fixed(
             screenshot_path=str(shot),
             output_folder=str(output_folder),
-            draw_circle=True,
-            save_original=save_original,
-            marker_output_folder=str(output_folder),
-            **config
+            **cutting_params
         )
         if not ok:
-            print(f"❌ 切割失败: {shot.name}")
+            print(f"ERROR: 切割失败: {shot.name}")
             continue
 
         processed += 1
@@ -180,7 +191,7 @@ def test_step2_cutting():
             draw.rectangle([x,y,x+100,y+120], fill='red', outline='black')
         img.save(test_img)
 
-        game_dir = Path('images/game_screenshots')
+        game_dir = project_root / 'images' / 'game_screenshots'
         game_dir.mkdir(parents=True, exist_ok=True)
         shutil.copy(test_img, game_dir / 'test.png')
 

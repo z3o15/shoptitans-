@@ -676,9 +676,13 @@ def step3_match_equipment(auto_mode: bool = True, base_dir: Optional[str] = None
                          compare_dir: Optional[str] = None, output_dir: Optional[str] = None,
                          save_comparisons: bool = True, use_circle_mask: bool = True) -> bool:
     """步骤3：装备图片匹配主函数"""
-    base_path = Path(base_dir) if base_dir else Path("images/base_equipment")
-    compare_path = Path(compare_dir) if compare_dir else Path(r"images\equipment_transparent")
-    output_path = Path(output_dir) if output_dir else Path("images")
+    # 获取项目根目录
+    current_file = Path(__file__).resolve()
+    project_root = current_file.parents[1]
+
+    base_path = Path(base_dir) if base_dir else project_root / "images" / "base_equipment"
+    compare_path = Path(compare_dir) if compare_dir else project_root / "images" / "equipment_transparent"
+    output_path = Path(output_dir) if output_dir else project_root / "images"
     
     config = MatchConfig(
         save_comparison_images=save_comparisons,

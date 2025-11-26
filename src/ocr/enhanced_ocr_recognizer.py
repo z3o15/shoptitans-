@@ -21,20 +21,23 @@ try:
 except ImportError:
     from ocr_config_manager import OCRConfigManager
 
-# 导入其他依赖模块
+# 导入CSV记录管理器
 try:
-    from src.ocr.file_renamer import FileRenamer, RenameResult
     from src.ocr.csv_record_manager import CSVRecordManager, CSVRecord
 except ImportError:
-    from file_renamer import FileRenamer, RenameResult
     from csv_record_manager import CSVRecordManager, CSVRecord
 
-# 导入节点日志管理器
-try:
-    from src.logging.node_logger import get_logger
-    NODE_LOGGER_AVAILABLE = True
-except ImportError:
-    NODE_LOGGER_AVAILABLE = False
+# 日志功能已简化，使用标准logging
+NODE_LOGGER_AVAILABLE = False
+
+# 简化的重命名结果类（替代已删除的file_renamer模块）
+@dataclass
+class RenameResult:
+    """文件重命名结果"""
+    original_path: str
+    new_path: str
+    success: bool
+    error_message: str = ""
 
 # 导入OCR引擎
 try:
@@ -94,8 +97,7 @@ class EnhancedOCRRecognizer:
         # 设置日志记录
         self._setup_logging()
         
-        # 初始化文件重命名器和CSV记录管理器
-        self.file_renamer = FileRenamer(self.config_manager)
+        # 初始化CSV记录管理器
         self.csv_record_manager = CSVRecordManager(self.config_manager)
         
         # 初始化CSV记录器（保持向后兼容）

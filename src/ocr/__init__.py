@@ -5,9 +5,8 @@ OCR识别模块
 包含OCR识别、文件重命名、CSV记录等功能
 """
 
-from .enhanced_ocr_recognizer import EnhancedOCRRecognizer, OCRResult, EnhancedOCRResult
+from .enhanced_ocr_recognizer import EnhancedOCRRecognizer, OCRResult, EnhancedOCRResult, RenameResult
 from .csv_record_manager import CSVRecordManager, CSVRecord
-from .file_renamer import FileRenamer, RenameResult
 
 __all__ = [
     'EnhancedOCRRecognizer',
@@ -15,6 +14,5 @@ __all__ = [
     'EnhancedOCRResult',
     'CSVRecordManager',
     'CSVRecord',
-    'FileRenamer',
     'RenameResult'
 ]

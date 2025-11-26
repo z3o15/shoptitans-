@@ -9,6 +9,7 @@
 import os
 import sys
 import cv2
+import csv
 import numpy as np
 import logging
 import tempfile
@@ -204,54 +205,117 @@ class TextProcessor:
 # 目录管理器
 # ============================================================================
 
-class DirectoryManager:
-    """目录管理器"""
-    
-    def __init__(self, base_output_dir: Path):
-        self.base_output_dir = base_output_dir
-        self.timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-        
-    def setup_output_directories(self) -> Dict[str, Path]:
-        """设置输出目录结构"""
-        # 直接使用基础目录，不创建子目录
-        self.base_output_dir.mkdir(parents=True, exist_ok=True)
-        
-        dirs = {
-            'base': self.base_output_dir,
-            'csv': self.base_output_dir  # CSV文件直接放在基础目录
-        }
-        
-        return dirs
-    
-    @staticmethod
-    def find_latest_input_directory(base_dir: Path) -> Optional[Path]:
-        """查找最新的输入目录"""
-        if not base_dir.exists() or not base_dir.is_dir():
+class CSVResultMerger:
+    """CSV结果合并器类"""
+
+    def __init__(self, output_dir: Path):
+        self.output_dir = output_dir
+
+    def find_latest_matching_csv(self) -> Optional[Path]:
+        """查找最新的匹配结果CSV文件"""
+        project_root = Path(__file__).resolve().parents[1]
+        equipment_transparent_dir = project_root / "images" / "equipment_transparent"
+
+        if not equipment_transparent_dir.exists():
             return None
-        
-        # 查找时间命名的子目录
-        time_dirs = []
-        for item in base_dir.iterdir():
-            if item.is_dir():
-                # 检查是否为时间命名格式
-                name = item.name.replace('_', '').replace(':', '').replace('-', '')
-                if name.isdigit():
-                    time_dirs.append((item, item.stat().st_mtime))
-        
-        if time_dirs:
-            # 返回最新的目录
-            time_dirs.sort(key=lambda x: x[1], reverse=True)
-            return time_dirs[0][0]
-        
-        # 如果没有时间目录，返回基础目录
-        return base_dir
-    
+
+        csv_files = list(equipment_transparent_dir.glob("matching_results_*.csv"))
+        if not csv_files:
+            return None
+
+        # 按修改时间排序，返回最新的
+        latest_file = max(csv_files, key=lambda f: f.stat().st_mtime)
+        return latest_file
+
+    def load_matching_results(self, csv_path: Path) -> Dict[str, str]:
+        """加载匹配结果"""
+        matching_results = {}
+
+        try:
+            with open(csv_path, 'r', encoding='utf-8') as f:
+                reader = csv.DictReader(f)
+                for row in reader:
+                    original_name = row.get('原始名称', '')
+                    matched_name = row.get('匹配装备名称', '')
+                    if original_name and matched_name:
+                        matching_results[original_name] = matched_name
+        except Exception as e:
+            print(f"读取匹配结果CSV失败: {e}")
+
+        return matching_results
+
+    def merge_results_with_matching(self, ocr_results: List[ProcessingResult],
+                                    matching_results: Dict[str, str]) -> List[Dict]:
+        """将OCR结果与匹配结果合并"""
+        merged_results = []
+
+        for ocr_result in ocr_results:
+            original_filename = ocr_result.filename
+
+            # 查找对应的匹配结果
+            matched_equipment = ""
+            original_base_name = original_filename.replace('.jpg', '').replace('.png', '')
+
+            for original_name, equipment_name in matching_results.items():
+                # 提取原始名称中的数字部分
+                match_base_name = original_name.replace('_circle', '').replace('.png', '')
+                if original_base_name in match_base_name or match_base_name in original_base_name:
+                    matched_equipment = equipment_name
+                    break
+
+                # 如果数字匹配（例如01对应01_circle_xxx）
+                if original_base_name.isdigit() and match_base_name.startswith(original_base_name):
+                    matched_equipment = equipment_name
+                    break
+
+            merged_result = {
+                'original_filename': original_filename,
+                'matched_equipment': matched_equipment,
+                'recognized_text': ocr_result.recognized_text,
+                'formatted_amount': ocr_result.formatted_amount,
+                'confidence': ocr_result.confidence,
+                'status': '成功' if ocr_result.success else '失败',
+                'error_message': ocr_result.error_message
+            }
+
+            merged_results.append(merged_result)
+
+        return merged_results
+
+    def save_merged_csv(self, merged_results: List[Dict]) -> Path:
+        """保存合并的CSV结果"""
+        timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+        csv_path = self.output_dir / f"equipment_amount_results_{timestamp}.csv"
+
+        with open(csv_path, 'w', newline='', encoding='utf-8') as f:
+            writer = csv.writer(f)
+
+            # 写入表头
+            writer.writerow([
+                '原始文件名', '匹配装备名称', '识别文本', '格式化金额',
+                '置信度', '状态', '错误信息'
+            ])
+
+            # 写入数据
+            for result in merged_results:
+                writer.writerow([
+                    result['original_filename'],
+                    result['matched_equipment'],
+                    result['recognized_text'],
+                    result['formatted_amount'],
+                    result['confidence'],
+                    result['status'],
+                    result['error_message']
+                ])
+
+        return csv_path
+
     @staticmethod
     def get_image_files(directory: Path) -> Generator[Path, None, None]:
         """获取目录中的图像文件（生成器）"""
         if not directory.exists():
             return
-        
+
         image_extensions = {'.png', '.jpg', '.jpeg', '.webp'}
         for file_path in sorted(directory.iterdir()):
             if file_path.suffix.lower() in image_extensions:
@@ -268,14 +332,13 @@ class OCRProcessor:
     def __init__(self, output_dir: Path, logger: logging.Logger):
         self.output_dir = output_dir
         self.logger = logger
-        self.dir_manager = DirectoryManager(output_dir)
+        self.csv_merger = CSVResultMerger(output_dir)
         self.image_processor = ImageProcessor()
         self.text_processor = TextProcessor()
-        
+
         # 延迟导入OCR模块
         self.recognizer = None
-        self.record_manager = None
-        self.csv_file = None
+        self.merged_csv_file = None
         
     def initialize_ocr_modules(self) -> bool:
         """初始化OCR模块"""
@@ -283,20 +346,14 @@ class OCRProcessor:
             from src.ocr.enhanced_ocr_recognizer import EnhancedOCRRecognizer
             from src.config.ocr_config_manager import OCRConfigManager
             from src.config.config_manager import get_config_manager
-            from src.ocr.csv_record_manager import CSVRecordManager, CSVRecord
-            
+
             base_config_manager = get_config_manager()
             ocr_config_manager = OCRConfigManager(base_config_manager)
             self.recognizer = EnhancedOCRRecognizer(ocr_config_manager)
-            self.record_manager = CSVRecordManager(ocr_config_manager)
-            
-            # 设置CSV文件路径 - 直接在输出目录
-            self.csv_file = self.output_dir / f"amount_records_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv"
-            self.record_manager.create_csv_file(str(self.csv_file))
-            
+
             self.logger.info("OCR模块初始化成功")
             return True
-            
+
         except ImportError as e:
             self.logger.error(f"无法导入OCR模块: {e}")
             return False
@@ -304,10 +361,10 @@ class OCRProcessor:
             self.logger.error(f"初始化OCR模块失败: {e}")
             return False
     
-    def process_single_image(self, image_path: Path, output_dirs: Dict[str, Path]) -> ProcessingResult:
+    def process_single_image(self, image_path: Path) -> ProcessingResult:
         """处理单个图像"""
         filename = image_path.name
-        
+
         try:
             # 直接进行OCR识别，不保存任何图片
             self.logger.debug(f"开始OCR识别: {image_path}")
@@ -315,22 +372,7 @@ class OCRProcessor:
             recognized_text = result.recognized_text.strip() if result and hasattr(result, 'recognized_text') else ""
             formatted_amount = self.text_processor.format_amount(recognized_text) if recognized_text else ""
             confidence = result.confidence if result and hasattr(result, 'confidence') else 0.0
-            
-            # 保存CSV记录
-            from src.ocr.csv_record_manager import CSVRecord
-            record = CSVRecord(
-                timestamp=datetime.now().isoformat(),
-                original_filename=filename,
-                new_filename=filename,  # 不重命名文件
-                equipment_name="",
-                amount=formatted_amount,
-                processing_time=0.0,
-                status="成功" if recognized_text else "失败",
-                recognized_text=recognized_text,
-                confidence=confidence
-            )
-            self.record_manager.add_record(str(self.csv_file), record)
-            
+
             # 如果没有识别到文本，记录为失败但不是错误
             if not recognized_text:
                 error_msg = "OCR未识别到文本"
@@ -341,7 +383,7 @@ class OCRProcessor:
                     error_message=error_msg,
                     confidence=confidence
                 )
-            
+
             return ProcessingResult(
                 filename=filename,
                 success=True,
@@ -349,7 +391,7 @@ class OCRProcessor:
                 formatted_amount=formatted_amount,
                 confidence=confidence
             )
-            
+
         except Exception as e:
             error_msg = f"{type(e).__name__}: {str(e)}"
             self.logger.error(f"处理图像 {filename} 失败: {error_msg}")
@@ -359,28 +401,25 @@ class OCRProcessor:
     
     def process_batch(self, input_dir: Path) -> ProcessingSummary:
         """批量处理图像"""
-        # 设置输出目录
-        output_dirs = self.dir_manager.setup_output_directories()
-        
         # 收集图像文件
-        image_files = list(self.dir_manager.get_image_files(input_dir))
+        image_files = list(self.csv_merger.get_image_files(input_dir))
         total_files = len(image_files)
-        
+
         if total_files == 0:
             self.logger.warning(f"在目录 {input_dir} 中未找到图像文件")
             return ProcessingSummary(0, 0, 0, [])
-        
+
         print(f"\n开始处理 {total_files} 个图像文件...")
-        
+
         # 处理图像
         success_count = 0
         failed_files = []
         results_list = []
-        
+
         for idx, image_path in enumerate(image_files, 1):
-            result = self.process_single_image(image_path, output_dirs)
+            result = self.process_single_image(image_path)
             results_list.append(result)
-            
+
             if result.success:
                 success_count += 1
                 self.logger.info(
@@ -391,11 +430,29 @@ class OCRProcessor:
             else:
                 failed_files.append((result.filename, result.error_message))
                 self.logger.error(f"[{idx}/{total_files}] {result.filename}: {result.error_message}")
-        
+
+        # 读取匹配结果并合并
+        print("\n正在读取装备匹配结果...")
+        matching_csv = self.csv_merger.find_latest_matching_csv()
+
+        if matching_csv:
+            print(f"找到匹配结果文件: {matching_csv}")
+            matching_results = self.csv_merger.load_matching_results(matching_csv)
+
+            print("正在合并OCR和匹配结果...")
+            merged_results = self.csv_merger.merge_results_with_matching(results_list, matching_results)
+
+            # 保存合并的CSV
+            self.merged_csv_file = self.csv_merger.save_merged_csv(merged_results)
+            print(f"合并结果已保存到: {self.merged_csv_file}")
+        else:
+            print("警告: 未找到装备匹配结果CSV文件")
+
         # 生成报告
         summary = ProcessingSummary(total_files, success_count, len(failed_files), failed_files)
-        self._generate_report(output_dirs['csv'], results_list, summary)
-        
+        if matching_csv:
+            self._generate_report(self.output_dir, results_list, summary)
+
         return summary
     
     def _generate_report(self, output_dir: Path, results: List[ProcessingResult], summary: ProcessingSummary) -> None:
@@ -409,7 +466,9 @@ class OCRProcessor:
                 f.write("=" * 80 + "\n\n")
                 
                 f.write(f"生成时间: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
-                f.write(f"CSV文件: {self.csv_file.name}\n\n")
+                if self.merged_csv_file:
+                    f.write(f"合并CSV文件: {self.merged_csv_file.name}\n")
+                f.write("\n")
                 
                 f.write("=" * 80 + "\n")
                 f.write("处理摘要\n")
@@ -458,17 +517,20 @@ def process_amount_images(input_dir: Optional[str] = None,
     处理金额图片
     
     Args:
-        input_dir: 输入目录路径，默认为 'images/equipment_crop'
-        output_dir: 输出目录路径，默认为 'ocr_output'
+        input_dir: 输入目录路径，默认为 '../images/equipment_crop'
+        output_dir: 输出目录路径，默认为 '../ocr_output'
     
     Returns:
         bool: 处理是否成功
     """
-    # 设置默认路径
+    # 获取项目根目录并设置默认路径
+    current_file = Path(__file__).resolve()
+    project_root = current_file.parents[1]
+
     if input_dir is None:
-        input_dir = "images/equipment_crop"
+        input_dir = str(project_root / "images" / "equipment_crop")
     if output_dir is None:
-        output_dir = "ocr_output"
+        output_dir = str(project_root / "ocr_output")
     
     # 转换为Path对象
     input_path = Path(input_dir)
@@ -490,14 +552,13 @@ def process_amount_images(input_dir: Optional[str] = None,
     print("金额图片OCR处理")
     print("=" * 60)
     
-    # 查找输入目录
-    latest_input_dir = DirectoryManager.find_latest_input_directory(input_path)
-    if latest_input_dir is None:
+    # 直接使用输入目录
+    if not input_path.exists():
         print(f"错误: 输入目录不存在: {input_path}")
         logger.error(f"输入目录不存在: {input_path}")
         return False
     
-    print(f"输入目录: {latest_input_dir}")
+    print(f"输入目录: {input_path}")
     print(f"输出目录: {output_path}")
     print(f"日志文件: {log_file}")
     
@@ -509,7 +570,7 @@ def process_amount_images(input_dir: Optional[str] = None,
         return False
     
     # 批量处理
-    summary = processor.process_batch(latest_input_dir)
+    summary = processor.process_batch(input_path)
     
     # 输出摘要
     print("\n" + "=" * 60)
@@ -527,7 +588,10 @@ def process_amount_images(input_dir: Optional[str] = None,
             print(f"  ... 还有 {len(summary.failed_files) - 10} 个失败文件")
     
     print(f"\n结果已保存到: {output_path}")
-    print(f"CSV记录: {processor.csv_file}")
+    if processor.merged_csv_file:
+        print(f"合并CSV记录: {processor.merged_csv_file}")
+    else:
+        print("警告: 未生成合并CSV文件")
     
     logger.info(f"处理完成: 成功 {summary.success}/{summary.total}")
     
@@ -545,10 +609,10 @@ def main():
         success = process_amount_images()
         
         if success:
-            print("\n✓ OCR处理完成")
+            print("\nOK: OCR处理完成")
             return 0
         else:
-            print("\n✗ OCR处理失败")
+            print("\nERROR: OCR处理失败")
             return 1
             
     except KeyboardInterrupt:

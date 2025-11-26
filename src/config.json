@@ -1,0 +1,60 @@
+{
+    "cutting": {
+        "default_method": "fixed",
+        "fixed_grid": [
+            6,
+            2
+        ],
+        "fixed_item_width": 100,
+        "fixed_item_height": 120,
+        "fixed_margin_left": 20,
+        "fixed_margin_top": 350,
+        "contour_min_area": 800,
+        "contour_max_area": 50000
+    },
+    "recognition": {
+        "default_threshold": 80,
+        "use_advanced_algorithm": true,
+        "enable_masking": true,
+        "enable_histogram": true
+    },
+    "paths": {
+        "images_dir": "images",
+        "base_equipment_dir": "base_equipment",
+        "game_screenshots_dir": "game_screenshots",
+        "cropped_equipment_dir": "equipment_crop",
+        "equipment_transparent_dir": "equipment_transparent",
+        "logs_dir": "recognition_logs"
+    },
+    "ocr": {
+        "enabled": true,
+        "engine": "easyocr",
+        "language": [
+            "en"
+        ],
+        "price_pattern": "\\d+",
+        "confidence_threshold": 0.8,
+        "preprocessing": {
+            "grayscale": true,
+            "threshold": true,
+            "denoise": true
+        },
+        "recognition_region": {
+            "enabled": true,
+            "left": 27,
+            "right": 145,
+            "top": 122,
+            "bottom": 152
+        },
+        "input_folder": "images/cropped_equipment_marker",
+        "output_csv": "ocr_rename_records.csv",
+        "rename_separator": "_",
+        "supported_formats": [
+            ".png",
+            ".jpg",
+            ".jpeg",
+            ".bmp",
+            ".tiff"
+        ]
+    }
+}
