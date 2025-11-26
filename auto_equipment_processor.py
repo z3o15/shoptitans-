@@ -292,6 +292,7 @@ class AutoEquipmentProcessor:
         print(f"找到 {len(base_files)} 个基准装备, {len(equip_files)} 个待匹配装备")
         print("使用装备匹配模块...")
         print("正在启动装备匹配模块，请稍候...")
+        print("正在匹配中，请稍候...")
 
         # 运行装备匹配模块
         success, output = self._run_module("step_tests/3_match.py", [
@@ -307,7 +308,7 @@ class AutoEquipmentProcessor:
             self._log_result(
                 "装备匹配",
                 "success",
-                f"匹配完成: 生成{len(csv_files)}个结果文件（缓存优化）",
+                f"匹配完成",
                 processed_count=len(equip_files),
                 output_files=[str(f) for f in csv_files],
                 duration=duration

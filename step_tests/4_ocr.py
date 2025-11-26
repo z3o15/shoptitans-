@@ -19,6 +19,9 @@ from typing import Optional, List, Dict, Tuple, Generator
 from datetime import datetime
 from dataclasses import dataclass
 from PIL import Image, ImageDraw, ImageFont
+from concurrent.futures import ThreadPoolExecutor, as_completed
+import hashlib
+import pickle
 
 # 添加项目根目录到sys.path
 sys.path.append(str(Path(__file__).parent.parent))
@@ -237,8 +240,8 @@ class CSVResultMerger:
                 reader = csv.DictReader(f)
                 for row in reader:
                     # 使用实际的CSV列名
-                    original_name = row.get('待匹配图像', '')
-                    matched_name = row.get('最佳匹配基准装备', '')
+                    original_name = row.get('原始名称', '')
+                    matched_name = row.get('匹配装备名称', '')
                     if original_name and matched_name:
                         matching_results[original_name] = matched_name
         except Exception as e:
@@ -330,18 +333,65 @@ class CSVResultMerger:
 
 class OCRProcessor:
     """OCR处理器主类"""
-    
-    def __init__(self, output_dir: Path, logger: logging.Logger):
+
+    def __init__(self, output_dir: Path, logger: logging.Logger, max_workers: int = 4):
         self.output_dir = output_dir
         self.logger = logger
         self.csv_merger = CSVResultMerger(output_dir)
         self.image_processor = ImageProcessor()
         self.text_processor = TextProcessor()
+        self.max_workers = max_workers
 
         # 延迟导入OCR模块
         self.recognizer = None
         self.merged_csv_file = None
-        
+
+        # 缓存设置
+        self.cache_dir = output_dir / "cache"
+        self.cache_dir.mkdir(exist_ok=True)
+        self.cache_file = self.cache_dir / "ocr_cache.pkl"
+        self.result_cache = self._load_cache()
+
+    def _load_cache(self) -> Dict:
+        """加载缓存"""
+        if self.cache_file.exists():
+            try:
+                with open(self.cache_file, 'rb') as f:
+                    return pickle.load(f)
+            except Exception as e:
+                self.logger.warning(f"加载缓存失败: {e}")
+        return {}
+
+    def _save_cache(self):
+        """保存缓存"""
+        try:
+            with open(self.cache_file, 'wb') as f:
+                pickle.dump(self.result_cache, f)
+        except Exception as e:
+            self.logger.warning(f"保存缓存失败: {e}")
+
+    def _get_image_hash(self, image_path: Path) -> str:
+        """获取图像文件哈希值用于缓存"""
+        try:
+            stat = image_path.stat()
+            # 使用文件路径、大小和修改时间生成哈希
+            hash_key = f"{image_path}_{stat.st_size}_{stat.st_mtime}"
+            return hashlib.md5(hash_key.encode()).hexdigest()
+        except Exception:
+            return hashlib.md5(str(image_path).encode()).hexdigest()
+
+    def _get_cached_result(self, image_path: Path) -> Optional[ProcessingResult]:
+        """获取缓存的识别结果"""
+        cache_key = self._get_image_hash(image_path)
+        if cache_key in self.result_cache:
+            return self.result_cache[cache_key]
+        return None
+
+    def _cache_result(self, image_path: Path, result: ProcessingResult):
+        """缓存识别结果"""
+        cache_key = self._get_image_hash(image_path)
+        self.result_cache[cache_key] = result
+
     def initialize_ocr_modules(self) -> bool:
         """初始化OCR模块"""
         try:
@@ -364,8 +414,14 @@ class OCRProcessor:
             return False
     
     def process_single_image(self, image_path: Path) -> ProcessingResult:
-        """处理单个图像"""
+        """处理单个图像（带缓存检查）"""
         filename = image_path.name
+
+        # 检查缓存
+        cached_result = self._get_cached_result(image_path)
+        if cached_result:
+            self.logger.debug(f"使用缓存结果: {filename}")
+            return cached_result
 
         try:
             # 直接进行OCR识别，不保存任何图片
@@ -379,30 +435,36 @@ class OCRProcessor:
             if not recognized_text:
                 error_msg = "OCR未识别到文本"
                 self.logger.warning(f"处理图像 {filename}: {error_msg}")
-                return ProcessingResult(
+                processing_result = ProcessingResult(
                     filename=filename,
                     success=False,
                     error_message=error_msg,
                     confidence=confidence
                 )
+            else:
+                processing_result = ProcessingResult(
+                    filename=filename,
+                    success=True,
+                    recognized_text=recognized_text,
+                    formatted_amount=formatted_amount,
+                    confidence=confidence
+                )
 
-            return ProcessingResult(
-                filename=filename,
-                success=True,
-                recognized_text=recognized_text,
-                formatted_amount=formatted_amount,
-                confidence=confidence
-            )
+            # 缓存结果
+            self._cache_result(image_path, processing_result)
+            return processing_result
 
         except Exception as e:
             error_msg = f"{type(e).__name__}: {str(e)}"
             self.logger.error(f"处理图像 {filename} 失败: {error_msg}")
             import traceback
             self.logger.debug(traceback.format_exc())
-            return ProcessingResult(filename, False, error_message=error_msg)
+            processing_result = ProcessingResult(filename, False, error_message=error_msg)
+            self._cache_result(image_path, processing_result)
+            return processing_result
     
     def process_batch(self, input_dir: Path) -> ProcessingSummary:
-        """批量处理图像"""
+        """并行批量处理图像"""
         # 收集图像文件
         image_files = list(self.csv_merger.get_image_files(input_dir))
         total_files = len(image_files)
@@ -411,27 +473,41 @@ class OCRProcessor:
             self.logger.warning(f"在目录 {input_dir} 中未找到图像文件")
             return ProcessingSummary(0, 0, 0, [])
 
-        print(f"\n开始处理 {total_files} 个图像文件...")
+        print(f"\n开始并行处理 {total_files} 个图像文件（使用 {self.max_workers} 个线程）...")
 
-        # 处理图像
+        # 并行处理图像
         success_count = 0
         failed_files = []
         results_list = []
 
-        for idx, image_path in enumerate(image_files, 1):
-            result = self.process_single_image(image_path)
-            results_list.append(result)
+        with ThreadPoolExecutor(max_workers=self.max_workers) as executor:
+            # 提交所有任务
+            future_to_path = {executor.submit(self.process_single_image, path): path
+                             for path in image_files}
 
-            if result.success:
-                success_count += 1
-                self.logger.info(
-                    f"[{idx}/{total_files}] {result.filename}: "
-                    f"{result.recognized_text} -> {result.formatted_amount} "
-                    f"(置信度: {result.confidence:.2f})"
-                )
-            else:
-                failed_files.append((result.filename, result.error_message))
-                self.logger.error(f"[{idx}/{total_files}] {result.filename}: {result.error_message}")
+            # 处理完成的任务
+            for future in as_completed(future_to_path):
+                image_path = future_to_path[future]
+                try:
+                    result = future.result()
+                    results_list.append(result)
+
+                    if result.success:
+                        success_count += 1
+                        print(f"✓ {result.filename}: {result.recognized_text} -> {result.formatted_amount} "
+                              f"(置信度: {result.confidence:.2f})")
+                    else:
+                        failed_files.append((result.filename, result.error_message))
+                        print(f"✗ {result.filename}: {result.error_message}")
+
+                except Exception as e:
+                    error_msg = f"{type(e).__name__}: {str(e)}"
+                    failed_files.append((image_path.name, error_msg))
+                    print(f"✗ {image_path.name}: 处理异常 - {error_msg}")
+                    self.logger.error(f"处理图像 {image_path} 异常: {error_msg}")
+
+        # 保存缓存
+        self._save_cache()
 
         # 读取匹配结果并合并
         print("\n正在读取装备匹配结果...")
@@ -515,7 +591,9 @@ class OCRProcessor:
 
 def process_amount_images(input_dir: Optional[str] = None,
                          output_dir: Optional[str] = None,
-                         auto_clean: bool = True) -> bool:
+                         auto_clean: bool = True,
+                         max_workers: int = 4,
+                         disable_cache: bool = False) -> bool:
     """
     处理金额图片
 
@@ -583,8 +661,14 @@ def process_amount_images(input_dir: Optional[str] = None,
     print(f"输出目录: {output_path}")
     print(f"日志文件: {log_file}")
     
-    # 初始化处理器
-    processor = OCRProcessor(output_path, logger)
+    # 初始化处理器（使用指定数量的并发线程）
+    processor = OCRProcessor(output_path, logger, max_workers=max_workers)
+
+    # 如果禁用缓存，清空缓存
+    if disable_cache:
+        processor.result_cache.clear()
+        processor._save_cache()
+        print("缓存已禁用，清空现有缓存")
     
     if not processor.initialize_ocr_modules():
         print("错误: OCR模块初始化失败")
@@ -626,8 +710,11 @@ def process_amount_images(input_dir: Optional[str] = None,
 def main():
     """主函数 - 自动执行OCR处理"""
     try:
-        # 直接执行处理，不需要用户选择
-        success = process_amount_images()
+        # 直接执行处理，不需要用户选择（使用优化参数）
+        success = process_amount_images(
+            max_workers=4,  # 使用4个并发线程
+            disable_cache=False  # 启用缓存
+        )
         
         if success:
             print("\nOK: OCR处理完成")

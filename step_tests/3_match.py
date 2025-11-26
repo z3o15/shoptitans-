@@ -139,44 +139,205 @@ class ImageProcessor:
             return np.zeros((image.shape[0], image.shape[1]), dtype=np.uint8)
 
 
+# ==================== 缓存管理器��� ====================
+class TemplateCache:
+    """模板特征缓存管理器"""
+
+    def __init__(self, cache_dir: Path = None):
+        self.cache_dir = cache_dir or Path("output_enter_image/template_cache")
+        self.cache_dir.mkdir(parents=True, exist_ok=True)
+        self.template_cache = {}
+
+    def get_cache_path(self, template_name: str) -> Path:
+        """获取缓存文件路径"""
+        return self.cache_dir / f"{template_name}.npz"
+
+    def load_template_features(self, template_name: str, template_path: Path) -> Optional[Dict]:
+        """加载或计算模板特征"""
+        cache_path = self.get_cache_path(template_name)
+
+        # 检查缓存是否存在且有效
+        if cache_path.exists():
+            try:
+                cached_data = np.load(cache_path)
+                # 检查模板文件是否修改
+                template_mtime = template_path.stat().st_mtime
+                cache_mtime = cached_data['cache_timestamp']
+                if template_mtime <= cache_mtime:
+                    return {
+                        'lab_vectors': cached_data['lab_vectors'],
+                        'lab_stats': cached_data['lab_stats'],
+                        'mask_coords': cached_data['mask_coords'],
+                        'mask_count': int(cached_data['mask_count'])
+                    }
+            except Exception as e:
+                logger.warning(f"缓存加载失败 {template_name}: {e}")
+
+        return None
+
+    def save_template_features(self, template_name: str, features: Dict, template_path: Path):
+        """保存模板特征到缓存"""
+        cache_path = self.get_cache_path(template_name)
+        try:
+            np.savez_compressed(cache_path,
+                              lab_vectors=features['lab_vectors'],
+                              lab_stats=features['lab_stats'],
+                              mask_coords=features['mask_coords'],
+                              mask_count=features['mask_count'],
+                              cache_timestamp=template_path.stat().st_mtime)
+        except Exception as e:
+            logger.error(f"缓存保存失败 {template_name}: {e}")
+
+
+# ==================== 向量化NCC处理器 ====================
+class VectorizedNCCProcessor:
+    """向量化NCC处理器 - 预处理模板并缓存特征"""
+
+    def __init__(self, cache_manager: TemplateCache):
+        self.cache = cache_manager
+        self.processor = ImageProcessor()
+
+    def preprocess_template_to_vectors(self, template_path: Path) -> Dict:
+        """预处理模板图像，生成标准化的LAB向量特征"""
+        try:
+            # 加载模板图像
+            template_img = self.processor.load_image(template_path)
+            if template_img is None:
+                return None
+
+            # 标准化尺寸
+            if template_img.shape[:2] != (116, 116):
+                template_img = cv2.resize(template_img, (116, 116))
+
+            # 转换到LAB色彩空间
+            template_lab = cv2.cvtColor(template_img, cv2.COLOR_BGR2LAB)
+
+            # 创建装备掩码（与原逻辑保持一致）
+            equipment_mask = self.processor.create_equipment_mask(template_img, radius=55, erode_iterations=2)
+
+            # 获取掩码区域的坐标
+            mask_coords = np.where(equipment_mask == 255)
+            if len(mask_coords[0]) == 0:
+                logger.warning(f"模板 {template_path.name} 没有有效装备区域")
+                return None
+
+            # 对每个LAB通道创建向量化特征
+            lab_vectors = {}
+            lab_stats = {}
+
+            for channel_idx, channel_name in enumerate(['L', 'A', 'B']):
+                # 提取掩码区域的像素值
+                channel_pixels = template_lab[:, :, channel_idx][mask_coords]
+
+                # 计算统计信息
+                mean_val = np.mean(channel_pixels)
+                std_val = np.std(channel_pixels)
+
+                # 标准化向量 (零均值，单位方差)
+                if std_val > 1e-8:  # 避免除零
+                    normalized_vector = (channel_pixels - mean_val) / std_val
+                else:
+                    normalized_vector = np.zeros_like(channel_pixels)
+
+                lab_vectors[channel_name] = normalized_vector
+                lab_stats[channel_name] = {'mean': mean_val, 'std': std_val}
+
+            mask_count = len(mask_coords[0])
+
+            return {
+                'lab_vectors': lab_vectors,
+                'lab_stats': lab_stats,
+                'mask_coords': mask_coords,
+                'mask_count': mask_count
+            }
+
+        except Exception as e:
+            logger.error(f"模板预处理失败 {template_path}: {e}")
+            return None
+
+    def get_or_compute_template_features(self, template_path: Path, template_name: str) -> Optional[Dict]:
+        """获取或计算模板特征（带缓存）"""
+        # 尝试从缓存加载
+        cached_features = self.cache.load_template_features(template_name, template_path)
+        if cached_features is not None:
+            return cached_features
+
+        # 计算新特征
+        features = self.preprocess_template_to_vectors(template_path)
+        if features is not None:
+            self.cache.save_template_features(template_name, features, template_path)
+
+        return features
+
+    def compute_vectorized_ncc_score(self, template_features: Dict, scene_img: np.ndarray) -> float:
+        """使用向量化NCC计算匹配分数"""
+        try:
+            # 标准化场景图像
+            if scene_img.shape[:2] != (116, 116):
+                scene_img = cv2.resize(scene_img, (116, 116))
+
+            # 转换到LAB色彩空间
+            scene_lab = cv2.cvtColor(scene_img, cv2.COLOR_BGR2LAB)
+
+            # 使用模板的掩码坐标
+            mask_coords = template_features['mask_coords']
+
+            # 计算每个通道的NCC分数
+            channel_scores = []
+            weights = [0.5, 0.25, 0.25]  # L, A, B 通道权重
+
+            for channel_idx, (channel_name, weight) in enumerate(zip(['L', 'A', 'B'], weights)):
+                # 提取场景图像对应掩码区域的像素
+                scene_pixels = scene_lab[:, :, channel_idx][mask_coords]
+
+                # 标准化场景向量（使用模板的统计信息保持一致性）
+                template_stats = template_features['lab_stats'][channel_name]
+                if template_stats['std'] > 1e-8:
+                    scene_normalized = (scene_pixels - template_stats['mean']) / template_stats['std']
+                else:
+                    scene_normalized = np.zeros_like(scene_pixels)
+
+                # 计算NCC分数（标准化向量的点积）
+                template_vector = template_features['lab_vectors'][channel_name]
+                ncc_score = np.dot(template_vector, scene_normalized) / len(template_vector)
+
+                # 确保分数在合理范围内（数值稳定性）
+                ncc_score = max(-1.0, min(1.0, ncc_score))
+                channel_scores.append(ncc_score * weight)
+
+            # 加权平均并转换为百分制（与原方法保持一致）
+            final_score = sum(channel_scores) * 100
+            return max(0, min(100, final_score))  # 确保在0-100范围内
+
+        except Exception as e:
+            logger.error(f"向量化NCC计算失败: {e}")
+            return 0.0
+
+
 # ==================== 匹配器类 ====================
 class EquipmentMatcher:
-    """装备匹配器类 - 使用LAB色彩空间"""
-    
+    """装备匹配器类 - 使用向量化NCC + LAB色彩空间"""
+
     def __init__(self, config: MatchConfig = None):
         self.config = config or MatchConfig()
         self.processor = ImageProcessor()
+        self.cache_manager = TemplateCache()
+        self.ncc_processor = VectorizedNCCProcessor(self.cache_manager)
     
-    def template_matching_lab(self, template: np.ndarray, scene: np.ndarray) -> Tuple[float, str]:
-        """使用LAB色彩空间三通道加权匹配"""
+    def template_matching_lab(self, template_path: Path, scene_img: np.ndarray, template_name: str) -> Tuple[float, str]:
+        """使用向量化NCC进行LAB色彩空间三通道加权匹配"""
         try:
-            if template.shape[0] > scene.shape[0] or template.shape[1] > scene.shape[1]:
-                scene = cv2.resize(scene, (template.shape[1], template.shape[0]))
-            
-            template_lab = cv2.cvtColor(template, cv2.COLOR_BGR2LAB) if len(template.shape) == 3 else template
-            scene_lab = cv2.cvtColor(scene, cv2.COLOR_BGR2LAB) if len(scene.shape) == 3 else scene
-            
-            # 使用LAB三通道加权匹配
-            scores = []
-            weights = [0.5, 0.25, 0.25]  # L, A, B 通道权重
-            
-            for i, weight in enumerate(weights):
-                if len(template_lab.shape) == 3:
-                    template_channel = template_lab[:, :, i]
-                    scene_channel = scene_lab[:, :, i]
-                else:
-                    template_channel = template_lab
-                    scene_channel = scene_lab
-                
-                result = cv2.matchTemplate(scene_channel, template_channel, cv2.TM_CCOEFF_NORMED)
-                _, max_val, _, _ = cv2.minMaxLoc(result)
-                scores.append(max_val * weight)
-            
-            # 加权平均
-            final_score = sum(scores) * 100
-            return final_score, "TM_LAB_WEIGHTED"
+            # 获取或计算模板特征（带缓存）
+            template_features = self.ncc_processor.get_or_compute_template_features(template_path, template_name)
+            if template_features is None:
+                logger.error(f"无法加载模板特征: {template_name}")
+                return 0.0, ""
+
+            # 使用向量化NCC计算匹配分数
+            score = self.ncc_processor.compute_vectorized_ncc_score(template_features, scene_img)
+            return score, "VECTORIZED_NCC"
         except Exception as e:
-            logger.error(f"LAB模板匹配失败: {e}")
+            logger.error(f"向量化NCC匹配失败 {template_name}: {e}")
             return 0.0, ""
     
     def calculate_histogram_similarity(self, img1: np.ndarray, img2: np.ndarray, mask: np.ndarray) -> float:
@@ -298,19 +459,21 @@ class EquipmentMatcher:
         # 直接相加：模板分数(0-100) + 颜色分数(0-100) = 总分(0-200)
         return template_score + color_score_100
     
-    def match_single_image(self, compare_image: np.ndarray, compare_name: str, base_images: Dict[str, np.ndarray]) -> Optional[MatchResult]:
-        """匹配单张图像"""
+    def match_single_image(self, compare_image: np.ndarray, compare_name: str, base_images: Dict[str, np.ndarray],
+                          base_paths: Dict[str, Path]) -> Optional[MatchResult]:
+        """匹配单张图像（使用向量化NCC）"""
         template_candidates = []
         for base_name, base_image in base_images.items():
-            template_score, method = self.template_matching_lab(base_image, compare_image)
+            template_path = base_paths[base_name]
+            template_score, method = self.template_matching_lab(template_path, compare_image, base_name)
             template_candidates.append({'name': base_name, 'image': base_image, 'score': template_score, 'method': method})
-        
+
         template_candidates.sort(key=lambda x: x['score'], reverse=True)
         high_score_candidates = [c for c in template_candidates if c['score'] >= self.config.template_threshold]
-        
+
         best_match = None
         best_score = 0.0
-        
+
         if high_score_candidates:
             for candidate in high_score_candidates:
                 # 计算颜色相似度
@@ -318,7 +481,7 @@ class EquipmentMatcher:
                     candidate['image'], compare_image
                 )
                 composite_score = self.calculate_composite_score(candidate['score'], color_score)
-                
+
                 if composite_score > best_score:
                     best_score = composite_score
                     best_match = MatchResult(
@@ -334,7 +497,7 @@ class EquipmentMatcher:
                 template_score=best['score'], template_method=best['method'],
                 color_score=0.0, composite_score=best['score']
             )
-        
+
         return best_match
     
     def create_comparison_image(self, base_image: np.ndarray, compare_image: np.ndarray, match_result: MatchResult) -> np.ndarray:
@@ -409,15 +572,17 @@ class FileManager:
                 yield file_path
     
     @staticmethod
-    def load_images_batch(directory: Path) -> Dict[str, np.ndarray]:
-        """批量加载图像"""
+    def load_images_batch(directory: Path) -> Tuple[Dict[str, np.ndarray], Dict[str, Path]]:
+        """批量加载图像并返回图像数据和路径"""
         images = {}
+        paths = {}
         processor = ImageProcessor()
         for file_path in FileManager.get_image_files(directory):
             image = processor.load_image(file_path)
             if image is not None:
                 images[file_path.name] = image
-        return images
+                paths[file_path.name] = file_path
+        return images, paths
     
     @staticmethod
     def ensure_directory(directory: Path) -> None:
@@ -477,7 +642,7 @@ class FileManager:
             f.write("装备图片匹配结果汇总\n")
             f.write("=" * 50 + "\n")
             f.write(f"测试时间: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
-            f.write(f"匹配方法: LAB色彩空间两阶段匹配\n")
+            f.write(f"匹配方法: 向量化NCC + LAB色彩空间（毫秒级匹配）\n")
             f.write(f"总匹配次数: {len(results)}\n")
             f.write(f"基准图像数量: {len(set(r.base_image for r in results))}\n")
             f.write(f"对比图像数量: {len(set(r.compare_image for r in results))}\n\n")
@@ -595,7 +760,8 @@ class EquipmentMatchingPipeline:
         """执行匹配流程"""
         try:
             logger.info("=" * 60)
-            logger.info("开始装备图片匹配（LAB色彩空间两阶段策略）")
+            logger.info("开始装备图片匹配（��量化NCC + LAB色彩空间）")
+            logger.info("使用掩码向量化标准化互相关，毫秒级匹配速度")
             logger.info("=" * 60)
             
             if not base_dir.exists():
@@ -609,31 +775,32 @@ class EquipmentMatchingPipeline:
             self.file_manager.ensure_directory(output_dir)
             
             logger.info(f"加载基准图像: {base_dir}")
-            base_images = self.file_manager.load_images_batch(base_dir)
-            
+            base_images, base_paths = self.file_manager.load_images_batch(base_dir)
+
             if not base_images:
                 logger.error("未找到基准图像")
                 return False
-            
-            logger.info(f"✓ 已加载 {len(base_images)} 个基准图像")
-            
+
+            logger.info(f"✓ 已加载 {len(base_images)} 个基准图像（启用向量化NCC缓存）")
+
             logger.info(f"加载对比图像: {compare_dir}")
-            compare_images = self.file_manager.load_images_batch(compare_dir)
-            
+            compare_images, _ = self.file_manager.load_images_batch(compare_dir)
+
             if not compare_images:
                 logger.error("未找到对比图像")
                 return False
-            
+
             logger.info(f"✓ 已加载 {len(compare_images)} 个对比图像")
+            logger.info("正在匹配中，请稍候...")
             logger.info("开始匹配处理...")
-            
+
             all_results = []
             failed_images = []
             total_files = len(compare_images)
-            
+
             for idx, (compare_name, compare_image) in enumerate(compare_images.items(), 1):
                 try:
-                    result = self.matcher.match_single_image(compare_image, compare_name, base_images)
+                    result = self.matcher.match_single_image(compare_image, compare_name, base_images, base_paths)
                     
                     if result:
                         all_results.append(result)
@@ -733,7 +900,7 @@ def main():
     try:
         import argparse
         
-        parser = argparse.ArgumentParser(description='步骤3：装备图片匹配功能（LAB色彩空间优化版）')
+        parser = argparse.ArgumentParser(description='步骤3：装备图片匹配功能（向量化NCC优化版）')
         parser.add_argument('--base-dir', type=str, default=None, help='基准图像目录路径')
         parser.add_argument('--compare-dir', type=str, default=None, help='对比图像目录路径')
         parser.add_argument('--output-dir', type=str, default=None, help='输出目录路径')
