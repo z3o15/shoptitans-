@@ -440,8 +440,8 @@ class FileManager:
         
         FileManager.ensure_directory(comparison_dir)
         
-        # 保存CSV文件（高置信度匹配结果）到compare_dir目录
-        csv_file = compare_dir / f"matching_results_{timestamp}.csv"
+        # 保存CSV文件（高置信度匹配结果）到output_dir目录
+        csv_file = output_dir / f"matching_results_{timestamp}.csv"
         high_confidence_threshold = 90
         
         with open(csv_file, 'w', newline='', encoding='utf-8') as f:
@@ -548,35 +548,46 @@ class EquipmentMatchingPipeline:
         self.file_manager = FileManager()
     
     def _rename_high_confidence_files(self, results: List[MatchResult], compare_dir: Path) -> None:
-        """重命名高置信度匹配的原始文件"""
+        """重命名高置信度匹配的原始文件，并显示所有文件的匹配状态"""
         try:
             renamed_count = 0
             high_confidence_threshold = 90  # 高置信度阈值
-            
+
             logger.info("\n开始重命名高置信度匹配的文件...")
-            
+            logger.info("所有文件匹配状态：")
+            logger.info("-" * 80)
+            logger.info(f"{'文件名':<25} {'匹配装备':<20} {'置信度得分':<10} {'状态':<10}")
+            logger.info("-" * 80)
+
             for result in results:
+                # 显示所有文件的匹配状态
+                base_name = Path(result.base_image).stem
                 if result.composite_score > high_confidence_threshold:
+                    status = "已匹配"
                     # 原始文件路径
                     original_file = compare_dir / result.compare_image
-                    
+
                     if original_file.exists():
                         # 生成新文件名：原文件名_匹配装备名.png
                         compare_name = result.compare_image.rsplit('.', 1)[0]  # 去除扩展名
-                        base_name = result.base_image.rsplit('.', 1)[0]  # 去除扩展名
-                        new_filename = f"{compare_name}_{base_name}.png"
+                        base_equipment_name = result.base_image.rsplit('.', 1)[0]  # 去除扩展名
+                        new_filename = f"{compare_name}_{base_equipment_name}.png"
                         new_file = compare_dir / new_filename
-                        
+
                         # 重命名文件
                         original_file.rename(new_file)
                         renamed_count += 1
-                        logger.info(f"  ✓ {result.compare_image} → {new_filename}")
-            
+                        logger.info(f"{result.compare_image:<25} {base_name:<20} {result.composite_score:>6.1f}% {status:<10}")
+                else:
+                    status = "未匹配"
+                    logger.info(f"{result.compare_image:<25} {base_name:<20} {result.composite_score:>6.1f}% {status:<10}")
+
+            logger.info("-" * 80)
             if renamed_count > 0:
                 logger.info(f"已重命名 {renamed_count} 个高置信度匹配的文件")
             else:
                 logger.info("没有高置信度匹配的文件需要重命名")
-                
+
         except Exception as e:
             logger.error(f"重命名文件时出错: {e}")
     
@@ -674,15 +685,40 @@ class EquipmentMatchingPipeline:
 # ==================== 主函数 ====================
 def step3_match_equipment(auto_mode: bool = True, base_dir: Optional[str] = None,
                          compare_dir: Optional[str] = None, output_dir: Optional[str] = None,
-                         save_comparisons: bool = True, use_circle_mask: bool = True) -> bool:
+                         save_comparisons: bool = True, use_circle_mask: bool = True,
+                         auto_clean: bool = True) -> bool:
     """步骤3：装备图片匹配主函数"""
+    import sys
+    # Fix Windows console encoding
+    if sys.platform == 'win32':
+        if hasattr(sys.stdout, 'reconfigure'):
+            sys.stdout.reconfigure(encoding='utf-8', errors='replace')
+        elif hasattr(sys.stdout, 'buffer'):
+            import codecs
+            sys.stdout = codecs.getwriter('utf-8')(sys.stdout.buffer, errors='replace')
+
     # 获取项目根目录
     current_file = Path(__file__).resolve()
     project_root = current_file.parents[1]
 
-    base_path = Path(base_dir) if base_dir else project_root / "images" / "base_equipment"
-    compare_path = Path(compare_dir) if compare_dir else project_root / "images" / "equipment_transparent"
-    output_path = Path(output_dir) if output_dir else project_root / "images"
+    base_path = Path(base_dir) if base_dir else project_root / "output_enter_image" / "base_equipment"
+    compare_path = Path(compare_dir) if compare_dir else project_root / "output_enter_image" / "equipment_transparent"
+    output_path = Path(output_dir) if output_dir else project_root / "output" / "matching"
+
+    # 自动清理输出目录
+    if auto_clean:
+        try:
+            from src.utils.output_cleaner import clean_step_outputs
+            print("清理步骤3的输出目录…")
+            clean_step_outputs('match', project_root)
+            print("[OK] 清理完成")
+        except ImportError:
+            # 备用清理方法
+            import shutil
+            comparison_dir = output_path / "comparisons"
+            if comparison_dir.exists():
+                shutil.rmtree(comparison_dir)
+                logger.info(f"已清理对比图像文件夹: {comparison_dir}")
     
     config = MatchConfig(
         save_comparison_images=save_comparisons,

@@ -100,7 +100,7 @@ python 5_ocr.py
 ### 输出目录
 - `images/equipment_crop/` - 裁剪的矩形装备图
 - `images/equipment_transparent/` - 圆形透明装备图
-- `ocr_output/` - OCR识别结果和CSV文件
+- `output/ocr/` - OCR识别结果和CSV文件
 - `recognition_logs/` - 日志文件
 
 ## 🔄 推荐使用流程

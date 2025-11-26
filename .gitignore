@@ -130,6 +130,7 @@ dmypy.json
 
 # Project specific
 images/
+output_enter_image/
 recognition_logs/
 output/
 test_output/

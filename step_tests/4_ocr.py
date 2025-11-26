@@ -212,14 +212,15 @@ class CSVResultMerger:
         self.output_dir = output_dir
 
     def find_latest_matching_csv(self) -> Optional[Path]:
-        """查找最新的匹配结果CSV文件"""
+        """查找最新���匹配结果CSV文件"""
         project_root = Path(__file__).resolve().parents[1]
-        equipment_transparent_dir = project_root / "images" / "equipment_transparent"
+        matching_output_dir = project_root / "output/matching"
 
-        if not equipment_transparent_dir.exists():
+        if not matching_output_dir.exists():
             return None
 
-        csv_files = list(equipment_transparent_dir.glob("matching_results_*.csv"))
+        # 查找匹配结果CSV文件（在output/matching目录中）
+        csv_files = list(matching_output_dir.glob("*match*.csv"))
         if not csv_files:
             return None
 
@@ -235,8 +236,9 @@ class CSVResultMerger:
             with open(csv_path, 'r', encoding='utf-8') as f:
                 reader = csv.DictReader(f)
                 for row in reader:
-                    original_name = row.get('原始名称', '')
-                    matched_name = row.get('匹配装备名称', '')
+                    # 使用实际的CSV列名
+                    original_name = row.get('待匹配图像', '')
+                    matched_name = row.get('最佳匹配基准装备', '')
                     if original_name and matched_name:
                         matching_results[original_name] = matched_name
         except Exception as e:
@@ -512,35 +514,54 @@ class OCRProcessor:
 # ============================================================================
 
 def process_amount_images(input_dir: Optional[str] = None,
-                         output_dir: Optional[str] = None) -> bool:
+                         output_dir: Optional[str] = None,
+                         auto_clean: bool = True) -> bool:
     """
     处理金额图片
-    
+
     Args:
-        input_dir: 输入目录路径，默认为 '../images/equipment_crop'
-        output_dir: 输出目录路径，默认为 '../ocr_output'
-    
+        input_dir: 输入目录路径，默认为 '../output_enter_image/equipment_crop'
+        output_dir: 输出目录路径，默认为 '../output/ocr'
+        auto_clean: 是否自动清理输出目录
+
     Returns:
         bool: 处理是否成功
     """
-    # 获取项目根目录并设置默认路径
+    import sys
+    # Fix Windows console encoding
+    if sys.platform == 'win32':
+        if hasattr(sys.stdout, 'reconfigure'):
+            sys.stdout.reconfigure(encoding='utf-8', errors='replace')
+        elif hasattr(sys.stdout, 'buffer'):
+            import codecs
+            sys.stdout = codecs.getwriter('utf-8')(sys.stdout.buffer, errors='replace')
+
+    # 获取项目根��录并设置默认路径
     current_file = Path(__file__).resolve()
     project_root = current_file.parents[1]
 
     if input_dir is None:
-        input_dir = str(project_root / "images" / "equipment_crop")
+        input_dir = str(project_root / "output_enter_image" / "equipment_crop")
     if output_dir is None:
-        output_dir = str(project_root / "ocr_output")
-    
+        output_dir = str(project_root / "output/ocr")
+
     # 转换为Path对象
     input_path = Path(input_dir)
     output_path = Path(output_dir)
-    
-    # 清空输出目录
-    if output_path.exists():
-        print(f"清空输出目录: {output_path}")
-        shutil.rmtree(output_path)
-    
+
+    # 自动清理输出目录
+    if auto_clean:
+        try:
+            from src.utils.output_cleaner import clean_step_outputs
+            print("清理步骤4的输出目录…")
+            clean_step_outputs('ocr', project_root)
+            print("[OK] 清理完成")
+        except ImportError:
+            # 备用清理方法
+            if output_path.exists():
+                print(f"清空输出目录: {output_path}")
+                shutil.rmtree(output_path)
+
     # 创建输出目录
     output_path.mkdir(parents=True, exist_ok=True)
     

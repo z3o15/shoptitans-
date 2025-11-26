@@ -78,13 +78,23 @@ def rename_sequence(folder: Path, exclude_suffix: str = '_circle.png') -> None:
 # 主流程 - 修改实现你的要求
 # ============================================================
 def step2_cut_screenshots(auto_mode=True, auto_clear_old=True, save_original=True) -> bool:
+    import os
+    import sys
+    # Fix Windows console encoding
+    if sys.platform == 'win32':
+        if hasattr(sys.stdout, 'reconfigure'):
+            sys.stdout.reconfigure(encoding='utf-8', errors='replace')
+        elif hasattr(sys.stdout, 'buffer'):
+            import codecs
+            sys.stdout = codecs.getwriter('utf-8')(sys.stdout.buffer, errors='replace')
+
     print("开始步骤2：裁剪并处理装备图标…")
 
     if not check_dependencies():
         return False
 
     # 使用项目根目录构建绝对路径
-    game_dir = project_root / 'images' / 'game_screenshots'
+    game_dir = project_root / 'output_enter_image' / 'game_screenshots'
     if not game_dir.exists():
         print(f"ERROR: 缺少 {game_dir}")
         return False
@@ -94,19 +104,30 @@ def step2_cut_screenshots(auto_mode=True, auto_clear_old=True, save_original=Tru
         print("ERROR: 未找到截图")
         return False
 
+    # 自动清理输出目录（使用统一的清理工具）
+    if auto_clear_old:
+        try:
+            from src.utils.output_cleaner import clean_step_outputs
+            print("清理步骤2的输出目录…")
+            clean_step_outputs('cut', project_root)
+            print("[OK] 清理完成")
+        except ImportError:
+            # 回退到原来的清理方法
+            print("使用备用清理方法…")
+
     # 主输出：不再使用时间戳文件夹
     # 原来：
     # marker_dir = Path('images/cropped_equipment_marker')
     # transparent_subdir = marker_dir / 'transparent'
 
     # 修改后：使用项目根目录构建绝对路径
-    marker_dir = project_root / 'images' / 'equipment_crop'                 # 矩形图输出
+    marker_dir = project_root / 'output_enter_image' / 'equipment_crop'                 # 矩形图输出
     marker_dir.mkdir(parents=True, exist_ok=True)
 
-    transparent_subdir = project_root / 'images' / 'equipment_transparent'  # 圆形透明图输出
+    transparent_subdir = project_root / 'output_enter_image' / 'equipment_transparent'  # 圆形透明图输出
     transparent_subdir.mkdir(parents=True, exist_ok=True)
 
-    if auto_clear_old:
+    if auto_clear_old and 'clean_step_outputs' not in globals():
         print("清理输出目录…")
         clean_dir(marker_dir)
         clean_dir(transparent_subdir)
@@ -166,7 +187,7 @@ def step2_cut_screenshots(auto_mode=True, auto_clear_old=True, save_original=Tru
             try:
                 f.rename(dst)
             except Exception as e:
-                print(f"⚠️ 移动圆形文件失败 {f} → {dst}: {e}")
+                print(f"[WARNING] 移动圆形文件失败 {f} -> {dst}: {e}")
 
         cropped_items = sum(1 for p in output_folder.iterdir()
                              if p.is_file() and p.suffix.lower() in ('.png','.jpg','.jpeg','.webp')
@@ -191,7 +212,7 @@ def test_step2_cutting():
             draw.rectangle([x,y,x+100,y+120], fill='red', outline='black')
         img.save(test_img)
 
-        game_dir = project_root / 'images' / 'game_screenshots'
+        game_dir = project_root / 'output_enter_image' / 'game_screenshots'
         game_dir.mkdir(parents=True, exist_ok=True)
         shutil.copy(test_img, game_dir / 'test.png')
 
